@@ -26,6 +26,18 @@ HF_LLM_ID = "google/gemma-4-31b-it"
 GROQ_LLM_ID = "llama-3.1-8b-instant"
 SENTIMENT_MAP = {-1: "negative", 0: "neutral", 1: "positive"}
 
+def transformer_num_labels(model_dir: Path) -> int | None:
+    """Number of output classes declared by a HF checkpoint's config.json (None if unreadable)."""
+    try:
+        with open(Path(model_dir) / "config.json", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if "id2label" in cfg:
+        return len(cfg["id2label"])
+    return cfg.get("num_labels")
+
+
 class PredictionPipeline:
     def __init__(self, inference_mode: str | None = None, confidence_threshold: float | None = None):
         self.inference_mode = (inference_mode or settings.INFERENCE_MODE).lower()
@@ -70,26 +82,26 @@ class PredictionPipeline:
             self.fast_model = None
             logger.warning(f"Fast model {self.fast_model_name} not found at {fast_model_path}")
 
-        # Tier 2: DistilBERT
-        distilbert_path = Path("artifacts/model_trainer/model_DistilBERT")
-        import os as env_os
-        env_os.environ["TF_USE_LEGACY_KERAS"] = "1"
+        # Tier 2: fine-tuned 3-class transformer (PyTorch). Never substitute a pretrained
+        # model with a different label space: a 2-class sentiment model cannot output neutral.
+        self.db_tokenizer = None
+        self.db_model = None
+        tier2_path = Path("artifacts/model_trainer/model_DistilBERT")
+        if not tier2_path.exists():
+            logger.warning(f"Transformer tier disabled: no fine-tuned model at {tier2_path}")
+            return
+        num_labels = transformer_num_labels(tier2_path)
+        if num_labels != 3:
+            logger.warning(f"Transformer tier disabled: {tier2_path} has {num_labels} labels, expected 3")
+            return
         try:
-            from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
-            if distilbert_path.exists():
-                model_source = str(distilbert_path)
-            else:
-                model_source = "distilbert-base-uncased-finetuned-sst-2-english"
-                logger.info(f"Local DistilBERT not found, downloading {model_source} from HF...")
-            
-            self.db_tokenizer = AutoTokenizer.from_pretrained(model_source, use_safetensors=False)
-            
-            # If loading local or fallback to HF, native TF weights should be used.
-            self.db_model = TFAutoModelForSequenceClassification.from_pretrained(model_source, use_safetensors=False)
+            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            self.db_tokenizer = AutoTokenizer.from_pretrained(str(tier2_path))
+            self.db_model = AutoModelForSequenceClassification.from_pretrained(str(tier2_path)).eval()
         except Exception as e:
             self.db_tokenizer = None
             self.db_model = None
-            logger.warning(f"Refinement model not loaded. Error: {e}")
+            logger.warning(f"Transformer tier disabled: failed to load {tier2_path}: {e}")
 
     def _clean_text(self, text: str) -> str:
         return self.data_transformer.clean_text(text)
@@ -116,25 +128,19 @@ class PredictionPipeline:
 
     def _predict_distilbert(self, cleaned_text: str) -> tuple[int, float]:
         if not self.db_model or not self.db_tokenizer:
-            raise RuntimeError("DistilBERT is not loaded.")
-            
-        import tensorflow as tf
-        import numpy as np
-        
-        encodings = self.db_tokenizer([cleaned_text], truncation=True, padding=True, max_length=128, return_tensors="tf")
-        logits = self.db_model(dict(encodings)).logits
-        probs = tf.nn.softmax(logits, axis=-1)[0]
-        
-        pred_idx = tf.argmax(probs).numpy()
-        confidence = float(probs[pred_idx])
-        
-        num_classes = logits.shape[-1]
-        if num_classes == 2:
-            pred_class = -1 if pred_idx == 0 else 1
-        else:
-            pred_class = int(pred_idx - 1.0) # Map back to -1, 0, 1
-        
-        return pred_class, confidence
+            raise RuntimeError("Transformer tier is not loaded.")
+
+        import torch
+
+        encodings = self.db_tokenizer([cleaned_text], truncation=True, padding=True, max_length=128, return_tensors="pt")
+        with torch.no_grad():
+            logits = self.db_model(**encodings).logits
+        probs = torch.softmax(logits, dim=-1)[0]
+        if probs.shape[-1] != 3:
+            raise RuntimeError(f"Transformer tier produced {probs.shape[-1]} classes, expected 3.")
+
+        pred_idx = int(probs.argmax())
+        return pred_idx - 1, float(probs[pred_idx])  # training maps sentiment -1,0,1 -> 0,1,2
 
     async def _predict_llm_async(self, text: str) -> dict | None:
         """Ask an external LLM for a label. Returns None on any failure; never invents a label."""
