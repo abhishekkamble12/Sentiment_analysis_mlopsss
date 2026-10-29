@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.svm import LinearSVC
 from sklearn.naive_bayes import MultinomialNB
 from tweet_sentiment_classifier import logger
@@ -45,18 +46,25 @@ class ModelTrainer:
                         n_jobs=-1
                     )
                 elif model_name == "LinearSVC":
-                    classifier = LinearSVC(
-                        C=hyperparams.get("C", 1.0),
-                        loss=hyperparams.get("loss", "squared_hinge"),
-                        max_iter=hyperparams.get("max_iter", 1000),
-                        random_state=random_state
+                    # Calibrated so the served model exposes real probabilities (predict_proba)
+                    classifier = CalibratedClassifierCV(
+                        LinearSVC(
+                            C=hyperparams.get("C", 1.0),
+                            loss=hyperparams.get("loss", "squared_hinge"),
+                            max_iter=hyperparams.get("max_iter", 1000),
+                            random_state=random_state
+                        ),
+                        cv=3,
                     )
                 elif model_name == "MultinomialNB":
                     classifier = MultinomialNB(alpha=hyperparams.get("alpha", 0.1))
                 elif model_name == "RidgeClassifier":
-                    classifier = RidgeClassifier(
-                        alpha=hyperparams.get("alpha", 1.0),
-                        random_state=random_state
+                    classifier = CalibratedClassifierCV(
+                        RidgeClassifier(
+                            alpha=hyperparams.get("alpha", 1.0),
+                            random_state=random_state
+                        ),
+                        cv=3,
                     )
                 elif model_name == "XGBoost":
                     from xgboost import XGBClassifier

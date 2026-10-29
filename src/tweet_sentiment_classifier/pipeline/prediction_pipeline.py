@@ -3,6 +3,7 @@ import re
 import time
 import json
 import joblib
+import numpy as np
 import pandas as pd
 import asyncio
 from typing import Dict, Any, List
@@ -99,25 +100,19 @@ class PredictionPipeline:
         
         vectorized = self.vectorizer.transform([cleaned_text])
         
-        # Try predict_proba first (LogisticRegression)
-        if hasattr(self.fast_model, "predict_proba"):
-            probs = self.fast_model.predict_proba(vectorized)[0]
-            pred_class = int(self.fast_model.classes_[probs.argmax()])
-            confidence = float(probs.max())
-        elif hasattr(self.fast_model, "decision_function"):
-            # For LinearSVC, Ridge
-            decision = self.fast_model.decision_function(vectorized)[0]
-            # Convert decision distance to a pseudo-probability
-            pred_class = int(self.fast_model.predict(vectorized)[0])
-            import numpy as np
-            confidence = float(np.exp(np.abs(decision)) / (1 + np.exp(np.abs(decision))))
-            if isinstance(confidence, np.ndarray):
-                confidence = float(confidence.max())
-        else:
-            pred_class = int(self.fast_model.predict(vectorized)[0])
-            confidence = 1.0 # Unknown confidence
-            
-        return pred_class, confidence
+        if not hasattr(self.fast_model, "predict_proba"):
+            # Margin models (LinearSVC, Ridge) are calibrated at training time. An old uncalibrated
+            # pickle must be retrained: a made-up confidence would be reported as if it were real.
+            raise RuntimeError(
+                f"{type(self.fast_model).__name__} has no predict_proba; "
+                "retrain it (margin models are wrapped in CalibratedClassifierCV)."
+            )
+
+        probs = self.fast_model.predict_proba(vectorized)[0]
+        classes = np.asarray(self.fast_model.classes_)
+        if set(classes.tolist()) == {0, 1, 2}:  # XGBoost is trained on labels shifted by +1
+            classes = classes - 1
+        return int(classes[probs.argmax()]), float(probs.max())
 
     def _predict_distilbert(self, cleaned_text: str) -> tuple[int, float]:
         if not self.db_model or not self.db_tokenizer:
