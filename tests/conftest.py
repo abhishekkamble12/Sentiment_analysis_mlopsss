@@ -92,7 +92,7 @@ class FakePipeline:
 @pytest.fixture(scope="module")
 def app_module():
     import app as app_mod
-    return app_mod
+    return app_mod.container
 
 
 @pytest.fixture
