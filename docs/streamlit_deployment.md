@@ -25,7 +25,7 @@ This guide provides simple, step-by-step instructions to deploy the Tweet Sentim
 Fill out the fields:
 - **Repository:** `abhishekkamble12/Sentiment_analysis_mlopsss`
 - **Branch:** `main`
-- **Main file path:** `streamlit_app.py`
+- **Main file path:** `streamlit_demo/streamlit_app.py`
 - **App URL (optional):** Choose your custom subdomain (e.g. `tweet-sentiment-ai.streamlit.app`).
 
 ### 4. Deploy!
@@ -33,8 +33,8 @@ Click **Deploy!**
 
 Streamlit will automatically:
 1. Spin up an isolated Linux container.
-2. Read `requirements.txt` and install all required packages.
-3. Launch `streamlit_app.py` at your public URL.
+2. Read `streamlit_demo/requirements.txt` (next to the app, so it takes priority over the root `requirements.txt`, which pulls in PyTorch) and install only what the demo needs.
+3. Launch `streamlit_demo/streamlit_app.py` at your public URL.
 
 ---
 
@@ -48,7 +48,7 @@ Streamlit will automatically:
 2. **Bulk CSV Processing**:
    - Upload any CSV with a `text` column.
    - Downloads a ready-to-use template CSV.
-   - Classifies thousands of rows with a progress bar and outputs a downloadable CSV with sentiment labels and confidence scores.
+   - Classifies up to 1,000 rows with a spinner and outputs a downloadable CSV with sentiment labels and confidence scores.
 
 3. **Google Form Feedback Survey**:
    - Embeds your live Google Form directly inside Streamlit.
@@ -56,3 +56,10 @@ Streamlit will automatically:
 
 4. **Model Performance & Evaluation**:
    - Displays test metrics (Macro-F1, Accuracy, Kappa, ECE, Latency) across all models.
+
+Run the demo locally (needs only the Streamlit requirements, not PyTorch):
+
+```bash
+pip install -r streamlit_demo/requirements.txt
+streamlit run streamlit_demo/streamlit_app.py
+```

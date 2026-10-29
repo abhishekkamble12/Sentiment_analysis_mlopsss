@@ -1,0 +1,3 @@
+-r base.txt
+# Streamlit demo only: no torch, LangChain or API framework.
+streamlit==1.66.1

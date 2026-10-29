@@ -3,10 +3,20 @@ import json
 import time
 from pathlib import Path
 
+import sys
+
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+# Resolve everything from the repo root so the working directory does not matter.
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from tweet_sentiment_classifier.components.data_transformation import clean_text  # noqa: E402
+
+MAX_CSV_ROWS = 1000
 
 # Configure page metadata
 st.set_page_config(
@@ -41,9 +51,9 @@ st.markdown("""
 @st.cache_resource
 def load_serving_pipeline():
     """Load the trained TF-IDF vectorizer and best calibrated model."""
-    vec_path = Path("artifacts/data_transformation/preprocessor.pkl")
-    model_path = Path("artifacts/best_model/best_model.pkl")
-    meta_path = Path("artifacts/best_model/best_model_metadata.json")
+    vec_path = ROOT / "artifacts/data_transformation/preprocessor.pkl"
+    model_path = ROOT / "artifacts/best_model/best_model.pkl"
+    meta_path = ROOT / "artifacts/best_model/best_model_metadata.json"
 
     metadata = {}
     if meta_path.exists():
@@ -56,10 +66,10 @@ def load_serving_pipeline():
     if not model_path.exists():
         best_name = metadata.get("best_model_name", "LinearSVC")
         candidates = [
-            Path(f"artifacts/model_trainer/model_{best_name}.pkl"),
-            Path("artifacts/model_trainer/model.pkl"),
-            Path("artifacts/model_trainer/model_LinearSVC.pkl"),
-            Path("artifacts/model_trainer/model_LogisticRegression.pkl"),
+            ROOT / f"artifacts/model_trainer/model_{best_name}.pkl",
+            ROOT / "artifacts/model_trainer/model.pkl",
+            ROOT / "artifacts/model_trainer/model_LinearSVC.pkl",
+            ROOT / "artifacts/model_trainer/model_LogisticRegression.pkl",
         ]
         for cand in candidates:
             if cand.exists():
@@ -67,14 +77,14 @@ def load_serving_pipeline():
                 break
 
     if not vec_path.exists() or not model_path.exists():
-        return None, None, metadata
+        return None, None, metadata, model_path
 
     vectorizer = joblib.load(vec_path)
     model = joblib.load(model_path)
-    return vectorizer, model, metadata
+    return vectorizer, model, metadata, model_path
 
 
-vectorizer, model, metadata = load_serving_pipeline()
+vectorizer, model, metadata, model_path = load_serving_pipeline()
 LABEL_MAP = {-1: "Negative", 0: "Neutral", 1: "Positive"}
 LABEL_ICONS = {"Negative": "🔴", "Neutral": "⚪", "Positive": "🟢"}
 
@@ -87,7 +97,7 @@ with st.sidebar:
     
     best_name = metadata.get("best_model_name", "LinearSVC")
     st.write("### ⚙️ Active Model")
-    st.info(f"**Model:** {best_name}\n\n**Calibration:** CalibratedClassifierCV\n\n**Classes:** Negative (-1), Neutral (0), Positive (1)")
+    st.info(f"**Model:** {best_name}\n\n**Wrapper:** {type(model).__name__ if model is not None else "n/a"}\n\n**Classes:** Negative (-1), Neutral (0), Positive (1)")
     
     if metadata.get("metrics"):
         m = metadata["metrics"]
@@ -103,6 +113,11 @@ with st.sidebar:
 # ----------------- MAIN INTERFACE -----------------
 st.title("🚀 Tweet Sentiment Intelligence Platform")
 st.markdown("Real-time NLP sentiment analysis trained with leak-free evaluation and probability calibration.")
+st.warning(
+    "**Read the scores with care.** The training labels come from the TextBlob lexicon, not from people "
+    "(~91% of the tweets are about one topic). Scores measure how well a model imitates that lexicon, "
+    "not how well it detects human-perceived sentiment. A human-labelled evaluation set is planned."
+)
 
 if not vectorizer or not model:
     st.error("⚠️ Model artifacts not found! Run the training pipeline (`python main.py`) first to generate the models.")
@@ -137,12 +152,12 @@ with tab1:
             placeholder="Type or paste a tweet here..."
         )
 
-    if st.button("🚀 Analyze Sentiment", type="primary", use_container_width=True):
+    if st.button("🚀 Analyze Sentiment", type="primary", width="stretch"):
         if not user_text.strip():
             st.warning("Please enter text to analyze.")
         else:
             start_time = time.time()
-            cleaned = user_text.lower().strip()
+            cleaned = clean_text(user_text)
             vec = vectorizer.transform([cleaned])
             probs = model.predict_proba(vec)[0]
             latency_ms = (time.time() - start_time) * 1000
@@ -186,48 +201,47 @@ with tab2:
             df = pd.read_csv(uploaded_file)
             if "text" not in df.columns:
                 st.error("The CSV must contain a column named 'text'.")
+            elif len(df) > MAX_CSV_ROWS:
+                st.error(f"Too many rows ({len(df)}). The demo accepts at most {MAX_CSV_ROWS}.")
             else:
                 st.write(f"Loaded **{len(df)} rows**. Preview:")
-                st.dataframe(df.head(5), use_container_width=True)
+                st.dataframe(df.head(5), width="stretch")
 
                 if st.button("⚡ Run Bulk Analysis", type="primary"):
                     with st.spinner(f"Analyzing {len(df)} rows..."):
                         t0 = time.time()
-                        texts = df["text"].fillna("").astype(str).str.lower()
-                        features = vectorizer.transform(texts)
-                        probs = model.predict_proba(features)
-                        
+                        texts = df["text"].fillna("").astype(str).map(clean_text)
+                        probs = model.predict_proba(vectorizer.transform(texts))
                         classes = model.classes_
                         pred_indices = probs.argmax(axis=1)
-                        preds = [LABEL_MAP.get(classes[i], "Neutral") for i in pred_indices]
-                        confs = [probs[row_idx, best_col] for row_idx, best_col in enumerate(pred_indices)]
-
-                        df["sentiment"] = preds
-                        df["confidence"] = np.round(confs, 4)
-                        elapsed = time.time() - t0
-
-                    st.success(f"Processed {len(df)} rows in {elapsed:.2f} seconds ({len(df)/max(elapsed, 0.001):.0f} rows/sec)!")
-                    st.dataframe(df.head(25), use_container_width=True)
-
-                    c1, c2 = st.columns([1, 2])
-                    with c1:
-                        st.write("#### Sentiment Breakdown")
-                        counts = df["sentiment"].value_counts()
-                        st.dataframe(counts)
-                    with c2:
-                        st.bar_chart(counts)
-
-                    # Export
-                    csv_export = df.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="📥 Download Analyzed CSV Results",
-                        data=csv_export,
-                        file_name="sentiment_predictions.csv",
-                        mime="text/csv",
-                        type="primary"
-                    )
+                        out = df.copy()
+                        out["sentiment"] = [LABEL_MAP.get(classes[i], "Neutral") for i in pred_indices]
+                        out["confidence"] = np.round(probs[np.arange(len(out)), pred_indices], 4)
+                        # Kept in session state so the results survive the rerun a download click causes.
+                        st.session_state["batch_result"] = (out, time.time() - t0)
         except Exception as e:
             st.error(f"Error processing CSV: {e}")
+
+    if "batch_result" in st.session_state:
+        out, elapsed = st.session_state["batch_result"]
+        st.success(f"Processed {len(out)} rows in {elapsed:.2f} seconds ({len(out)/max(elapsed, 0.001):.0f} rows/sec).")
+        st.dataframe(out.head(25), width="stretch")
+
+        c1, c2 = st.columns([1, 2])
+        counts = out["sentiment"].value_counts()
+        with c1:
+            st.write("#### Sentiment Breakdown")
+            st.dataframe(counts)
+        with c2:
+            st.bar_chart(counts)
+
+        st.download_button(
+            label="📥 Download Analyzed CSV Results",
+            data=out.to_csv(index=False).encode("utf-8"),
+            file_name="sentiment_predictions.csv",
+            mime="text/csv",
+            type="primary",
+        )
 
 # ================= TAB 3: GOOGLE FORM SURVEY =================
 with tab3:
@@ -252,13 +266,17 @@ with tab4:
     st.subheader("Model Evaluation & Comparison Benchmarks")
     st.markdown("All metrics are computed on a held-out test split of **31,917 tweets** with 0% text leakage.")
 
-    eval_path = Path("artifacts/evaluation/results.csv")
+    eval_path = ROOT / "artifacts/evaluation/results.csv"
     if eval_path.exists():
         results_df = pd.read_csv(eval_path)
-        st.dataframe(results_df, use_container_width=True)
+        st.dataframe(results_df, width="stretch")
+        st.caption(
+            "TextBlob generated the labels, so its ~1.0 score only confirms the labels. It is not a competitor "
+            "and is left out of the chart. All scores are *silver* (agreement with TextBlob), not human accuracy."
+        )
 
         st.write("#### Macro-F1 Comparison")
-        chart_data = results_df[["model", "macro_f1"]].set_index("model")
+        chart_data = results_df[results_df["model"] != "TextBlob"][["model", "macro_f1"]].set_index("model")
         st.bar_chart(chart_data)
     else:
         st.info("Evaluation results not found in `artifacts/evaluation/results.csv`.")
