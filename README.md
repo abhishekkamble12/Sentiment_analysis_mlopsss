@@ -84,7 +84,7 @@ a seed (models are fit from scratch; nothing is read from old pickles):
 
 ```bash
 pip install -r requirements/base.txt -r requirements/eval.txt
-python -m tweet_sentiment_classifier.evaluation.run     --train artifacts/data_transformation/train.csv --test artifacts/data_transformation/test.csv     --out artifacts/evaluation
+python -m tweet_sentiment_classifier.evaluation.run --train artifacts/data_transformation/train.csv --test artifacts/data_transformation/test.csv --out artifacts/evaluation
 ```
 
 It writes `results.csv` / `results.json` (rebuilt from scratch each run) with accuracy, macro-F1 with a
