@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     HF_API_TOKEN: str = ""
     HF_TOKEN: str = ""
     LOG_LEVEL: str = "INFO"
+    # local: trained models only | llm: LLM decides | hybrid: LLM only when local confidence is low
+    INFERENCE_MODE: str = "local"
+    HYBRID_CONFIDENCE_THRESHOLD: float = 0.75
 
     class Config:
         env_file = ".env"

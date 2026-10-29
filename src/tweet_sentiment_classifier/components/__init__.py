@@ -1,6 +1,20 @@
-from tweet_sentiment_classifier.components.data_ingestion import DataIngestion
-from tweet_sentiment_classifier.components.data_validation import DataValidation
-from tweet_sentiment_classifier.components.data_transformation import DataTransformation
-from tweet_sentiment_classifier.components.model_trainer import ModelTrainer
-from tweet_sentiment_classifier.components.model_evaluation import ModelEvaluation
-from tweet_sentiment_classifier.components.best_model_selector import BestModelSelector
+"""Components are imported lazily so that serving code (which only needs
+DataTransformation) does not pull in the training stack (MLflow, seaborn, DL frameworks)."""
+from importlib import import_module
+
+_EXPORTS = {
+    "DataIngestion": "data_ingestion",
+    "DataValidation": "data_validation",
+    "DataTransformation": "data_transformation",
+    "ModelTrainer": "model_trainer",
+    "ModelEvaluation": "model_evaluation",
+    "BestModelSelector": "best_model_selector",
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name):
+    if name in _EXPORTS:
+        return getattr(import_module(f"{__name__}.{_EXPORTS[name]}"), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -79,18 +79,18 @@
             <div class="glass-card p-4">
                 <div class="flex justify-between items-end mb-2">
                     <p class="text-sm text-slate-400">Confidence</p>
-                    <span class="text-xs font-mono text-cyan-400" x-text="formatPercent(result.confidence)"></span>
+                    <span class="text-xs font-mono text-cyan-400" x-text="result.confidence == null ? 'not reported' : formatPercent(result.confidence)"></span>
                 </div>
                 <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
-                    <div class="bg-gradient-to-r from-cyan-500 to-indigo-500 h-2.5 rounded-full transition-all duration-1000 ease-out" :style="`width: ${result.confidence * 100}%`"></div>
+                    <div class="bg-gradient-to-r from-cyan-500 to-indigo-500 h-2.5 rounded-full transition-all duration-1000 ease-out" :style="`width: ${(result.confidence || 0) * 100}%`"></div>
                 </div>
             </div>
 
             <!-- Model Used -->
             <div class="glass-card p-4">
-                <p class="text-sm text-slate-400 mb-1">Model Route</p>
+                <p class="text-sm text-slate-400 mb-1">Decided by</p>
                 <div class="flex items-center">
-                    <span class="px-2 py-1 text-xs font-semibold rounded-md bg-slate-800 border border-slate-700 text-indigo-300" x-text="result.model_used || 'Unknown'"></span>
+                    <span class="px-2 py-1 text-xs font-semibold rounded-md bg-slate-800 border border-slate-700 text-indigo-300" x-text="result.decision_source || 'Unknown'"></span>
                 </div>
             </div>
 
@@ -102,7 +102,7 @@
                 </div>
                 <div class="mt-2 text-xs">
                     <span class="text-slate-500">Fallback: </span>
-                    <span :class="isFallback(result.model_used) ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'" x-text="isFallback(result.model_used) ? 'YES' : 'NO'"></span>
+                    <span :class="result.fallback_triggered ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'" x-text="result.fallback_triggered ? 'YES' : 'NO'"></span>
                 </div>
             </div>
         </div>
@@ -119,29 +119,29 @@
             </h3>
             
             <div class="flex-1 bg-slate-900/50 rounded-xl p-4 border border-slate-700/50 overflow-y-auto font-mono text-sm text-slate-300 leading-relaxed relative">
-                <!-- Skeleton loader for AI thinking -->
-                <div x-show="isGeneratingReport" class="space-y-3" style="display: none;">
-                    <div class="h-2 bg-slate-700 rounded w-3/4 animate-pulse"></div>
-                    <div class="h-2 bg-slate-700 rounded w-full animate-pulse"></div>
-                    <div class="h-2 bg-slate-700 rounded w-5/6 animate-pulse"></div>
-                    <div class="pt-4 flex space-x-2 items-center text-xs text-indigo-400">
-                        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Synthesizing LLM context...</span>
-                    </div>
+                <!-- Explanation text comes only from an LLM decider; rendered as text, never HTML -->
+                <div x-show="hasResult && result.explanation" class="whitespace-pre-wrap" x-text="result.explanation"></div>
+
+                <div x-show="hasResult && !result.explanation" class="text-slate-500 italic">
+                    No explanation: this prediction came from a local model (<span x-text="result.decision_source"></span>),
+                    which outputs a label and probability only.
                 </div>
 
-                <!-- Actual Report -->
-                <div x-show="!isGeneratingReport && aiReport" class="whitespace-pre-wrap" x-html="aiReport"></div>
-                
-                <div x-show="!isGeneratingReport && !aiReport" class="text-slate-500 italic">
-                    AI explanation will appear here after analysis.
+                <div x-show="!hasResult" class="text-slate-500 italic">
+                    The explanation appears here when an LLM makes the decision (INFERENCE_MODE=llm or hybrid).
+                </div>
+
+                <!-- Per-model votes -->
+                <div x-show="hasResult && Object.keys(result.votes || {}).length" class="mt-4 pt-3 border-t border-slate-700/50">
+                    <p class="text-xs text-slate-500 mb-2">Votes from each model that ran</p>
+                    <template x-for="(vote, source) in (result.votes || {})" :key="source">
+                        <div class="flex justify-between text-xs py-0.5">
+                            <span class="text-slate-400" x-text="source"></span>
+                            <span class="text-slate-200" x-text="vote.label + (vote.confidence == null ? '' : ' (' + formatPercent(vote.confidence) + ')')"></span>
+                        </div>
+                    </template>
                 </div>
             </div>
-            
-            <button @click="generateReport()" x-show="!isGeneratingReport && !aiReport" class="mt-4 text-sm text-indigo-400 hover:text-indigo-300 flex items-center transition-colors">
-                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                Generate Detailed AI Report
-            </button>
         </div>
     </div>
 </div>
@@ -157,24 +157,16 @@ document.addEventListener('alpine:init', () => {
         error: null,
         hasResult: false,
         result: {},
-        isGeneratingReport: false,
-        aiReport: null,
         
         formatPercent(val) {
             if(!val) return '0%';
             return (val * 100).toFixed(1) + '%';
         },
         
-        isFallback(modelName) {
-            if(!modelName) return false;
-            return modelName.toLowerCase().includes('gemma') || modelName.toLowerCase().includes('llm');
-        },
-        
         async analyzeSentiment() {
             this.isLoading = true;
             this.error = null;
             this.hasResult = false;
-            this.aiReport = null;
             
             try {
                 // Assuming standard endpoint from backend
@@ -189,49 +181,12 @@ document.addEventListener('alpine:init', () => {
                 
                 this.result = await response.json();
                 this.hasResult = true;
-                
-                // Automatically generate report if fallback happened or just simulating local explanation
-                this.generateReport();
-                
             } catch(e) {
                 this.error = e.message;
             } finally {
                 this.isLoading = false;
             }
         },
-        
-        async generateReport() {
-            this.isGeneratingReport = true;
-            
-            // Simulating LLM delay since the current backend doesn't have a direct /explain endpoint for single text
-            // I will use a typing effect simulation here to make it look premium based on the prediction.
-            setTimeout(() => {
-                const conf = (this.result.confidence * 100).toFixed(1);
-                const mood = this.result.prediction;
-                
-                let explanation = `<span class="text-white font-bold mb-2 block">Executive Summary</span>`;
-                explanation += `The provided text expresses a <strong class="${mood === 'positive' ? 'text-emerald-400' : mood==='negative' ? 'text-rose-400' : 'text-slate-300'}">${mood}</strong> sentiment with a confidence score of <strong>${conf}%</strong>.\n\n`;
-                
-                explanation += `<span class="text-white font-bold mb-2 block mt-4">Key Insights</span>`;
-                if(mood === 'negative') {
-                    explanation += `• The tone indicates frustration or concern regarding the policy/topic.\n`;
-                    explanation += `• High priority for public relations or intervention teams to address underlying issues.\n`;
-                } else if(mood === 'positive') {
-                    explanation += `• The text shows approval and satisfaction.\n`;
-                    explanation += `• Indicates successful reception of recent initiatives.\n`;
-                } else {
-                    explanation += `• The statement is objective or lacks strong emotional polarity.\n`;
-                    explanation += `• Likely informational rather than opinionated.\n`;
-                }
-                
-                if(this.isFallback(this.result.model_used)) {
-                    explanation += `\n<span class="text-amber-400 mt-4 block text-xs">Note: This insight was generated using the fallback LLM pipeline due to low initial confidence.</span>`;
-                }
-                
-                this.aiReport = explanation;
-                this.isGeneratingReport = false;
-            }, 1500);
-        }
     }));
 });
 </script>

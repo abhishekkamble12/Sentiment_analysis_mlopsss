@@ -8,8 +8,6 @@ from sklearn.svm import LinearSVC
 from sklearn.naive_bayes import MultinomialNB
 from tweet_sentiment_classifier import logger
 from tweet_sentiment_classifier.config.config_entity import ModelTrainerConfig
-import tensorflow as tf
-from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
         self.config = config

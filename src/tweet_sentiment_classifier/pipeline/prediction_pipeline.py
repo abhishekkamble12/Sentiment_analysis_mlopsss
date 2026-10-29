@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import joblib
@@ -19,9 +20,19 @@ settings = get_settings()
 import os
 HF_API_TOKEN = settings.HF_API_TOKEN or settings.HF_TOKEN or os.environ.get("HF_TOKEN", "")
 
+INFERENCE_MODES = ("local", "llm", "hybrid")
+HF_LLM_ID = "google/gemma-4-31b-it"
+GROQ_LLM_ID = "llama-3.1-8b-instant"
+SENTIMENT_MAP = {-1: "negative", 0: "neutral", 1: "positive"}
+
 class PredictionPipeline:
-    def __init__(self, confidence_threshold: float = 0.75):
-        self.confidence_threshold = confidence_threshold
+    def __init__(self, inference_mode: str | None = None, confidence_threshold: float | None = None):
+        self.inference_mode = (inference_mode or settings.INFERENCE_MODE).lower()
+        if self.inference_mode not in INFERENCE_MODES:
+            raise ValueError(f"INFERENCE_MODE must be one of {INFERENCE_MODES}, got {self.inference_mode!r}")
+        self.confidence_threshold = (
+            settings.HYBRID_CONFIDENCE_THRESHOLD if confidence_threshold is None else confidence_threshold
+        )
         self.config_manager = ConfigurationManager()
         self.best_model_config = self.config_manager.get_best_model_config()
         self.metadata_path = Path(self.best_model_config.metadata_path)
@@ -37,7 +48,7 @@ class PredictionPipeline:
             
         # Load models
         self._load_models()
-        self.hf_client = InferenceClient("google/gemma-4-31b-it", token=HF_API_TOKEN) if HF_API_TOKEN else None
+        self.hf_client = InferenceClient(HF_LLM_ID, token=HF_API_TOKEN) if HF_API_TOKEN else None
         
         # Dummy config for DataTransformation (we only need clean_text method)
         dummy_transform_config = self.config_manager.get_data_transformation_config()
@@ -130,109 +141,130 @@ class PredictionPipeline:
         
         return pred_class, confidence
 
-    async def _predict_gemma_fallback_async(self, text: str) -> dict:
-        prompt = f"Analyze the sentiment of the following tweet and return exactly -1 for negative, 0 for neutral, or 1 for positive. Also provide a brief explanation. Tweet: '{text}'.\nFormat: Label: [label]\nExplanation: [explanation]"
-        
-        response_text = ""
-        used_model = ""
-        
-        # 1. Try Hugging Face Gemma
+    async def _predict_llm_async(self, text: str) -> dict | None:
+        """Ask an external LLM for a label. Returns None on any failure; never invents a label."""
+        prompt = (
+            "Analyze the sentiment of the following tweet and return exactly -1 for negative, "
+            "0 for neutral, or 1 for positive. Also provide a brief explanation. "
+            f"Tweet: '{text}'.\nFormat: Label: [label]\nExplanation: [explanation]"
+        )
+
+        candidates = []  # (source, callable returning text)
         if self.hf_client:
-            try:
-                # Gemma call might block, so we wrap it
-                response_text = self.hf_client.text_generation(prompt, max_new_tokens=100)
-                used_model = "Gemma API"
-            except Exception as e:
-                logger.warning(f"Gemma API failed: {e}. Falling back to Groq.")
-                
-        # 2. Fallback to Groq
-        if not response_text and settings.GROQ_API_KEY:
-            try:
+            candidates.append((f"llm:hf/{HF_LLM_ID}", lambda: self.hf_client.text_generation(prompt, max_new_tokens=100)))
+        if settings.GROQ_API_KEY:
+            def _groq():
                 from langchain_groq import ChatGroq
                 from langchain_core.messages import HumanMessage
-                llm = ChatGroq(model_name="llama-3.1-8b-instant", api_key=settings.GROQ_API_KEY, temperature=0.1)
-                res = llm.invoke([HumanMessage(content=prompt)])
-                response_text = res.content
-                used_model = "Groq Llama-3.1"
-            except Exception as e:
-                logger.error(f"Groq API fallback failed: {e}")
-                
-        if not response_text:
-            return {"prediction": 0, "confidence": 0.0, "explanation": "Both Gemma and Groq APIs failed or tokens are missing."}
-            
-        # Parse the response from whichever LLM succeeded
-        try:
-            label_part = response_text.split("Label:")[1].split("\n")[0].strip() if "Label:" in response_text else "0"
-            explanation = response_text.split("Explanation:")[1].strip() if "Explanation:" in response_text else response_text.strip()
-            
+                llm = ChatGroq(model_name=GROQ_LLM_ID, api_key=settings.GROQ_API_KEY, temperature=0.1)
+                return llm.invoke([HumanMessage(content=prompt)]).content
+            candidates.append((f"llm:groq/{GROQ_LLM_ID}", _groq))
+
+        for source, call in candidates:
             try:
-                label = int(label_part)
-                if label not in [-1, 0, 1]: label = 0
-            except:
-                label = 0
-                
-            return {"prediction": label, "confidence": 0.9, "explanation": explanation}
-        except Exception as e:
-            logger.error(f"Failed to parse LLM response from {used_model}: {e}")
-            return {"prediction": 0, "confidence": 0.0, "explanation": str(e)}
+                response_text = call()
+            except Exception as e:
+                logger.warning(f"{source} failed: {e}")
+                continue
+            parsed = self._parse_llm_response(response_text)
+            if parsed is None:
+                logger.warning(f"{source} returned an unparseable label: {str(response_text)[:120]!r}")
+                continue
+            label, explanation = parsed
+            return {"label": label, "explanation": explanation, "source": source}
+        return None
+
+    @staticmethod
+    def _parse_llm_response(response_text: str) -> tuple[int, str] | None:
+        match = re.search(r"Label:\s*(-1|0|1)\b", response_text or "")
+        if not match:
+            return None
+        explanation = response_text.split("Explanation:", 1)[1].strip() if "Explanation:" in response_text else ""
+        return int(match.group(1)), explanation
 
     def _sync_predict_local_tiers(self, cleaned_text: str) -> dict:
-        pred_fast, conf_fast = self._predict_fast(cleaned_text)
-        
+        """Run each local model independently; a failing tier is reported, not masked."""
+        out = {"fast": None, "distilbert": None, "errors": {}}
         try:
-            pred_db, conf_db = self._predict_distilbert(cleaned_text)
+            out["fast"] = self._predict_fast(cleaned_text)
         except Exception as e:
+            out["errors"]["fast"] = str(e)
+            logger.warning(f"Fast model {self.fast_model_name} failed: {e}")
+        try:
+            out["distilbert"] = self._predict_distilbert(cleaned_text)
+        except Exception as e:
+            out["errors"]["distilbert"] = str(e)
             logger.warning(f"DistilBERT failed: {e}")
-            pred_db, conf_db = pred_fast, 0.0
-                
-        return {"fast_pred": pred_fast, "fast_conf": conf_fast, "db_pred": pred_db, "db_conf": conf_db}
+        return out
 
     async def predict(self, text: str) -> Dict[str, Any]:
         start_time = time.time()
+        mode = self.inference_mode
         cleaned_text = self._clean_text(text)
-        
-        # 1. Get predictions from local models (Fast + DistilBERT)
+        warnings: list[str] = []
+
+        # 1. Local models (always computed: they are votes, and the fallback if the LLM fails)
         loop = asyncio.get_running_loop()
         try:
-            local_res = await asyncio.wait_for(
-                loop.run_in_executor(None, self._sync_predict_local_tiers, cleaned_text),
-                timeout=5.0
+            local = await asyncio.wait_for(
+                loop.run_in_executor(None, self._sync_predict_local_tiers, cleaned_text), timeout=5.0
             )
         except Exception as e:
             logger.error(f"Local tiers failed or timed out: {e}")
-            local_res = {"fast_pred": 0, "fast_conf": 0.0, "db_pred": 0, "db_conf": 0.0}
-            
-        # 2. Gemma is now the mandatory final decider, if available
-        gemma_res = await self._predict_gemma_fallback_async(text)
-        
-        if gemma_res["confidence"] > 0:
-            final_pred_class = gemma_res["prediction"]
-            final_confidence = gemma_res["confidence"]
-            explanation = gemma_res.get("explanation", "")
-        else:
-            final_pred_class = local_res["db_pred"] # Use DistilBERT as fallback if Gemma is missing/fails
-            final_confidence = local_res["db_conf"]
-            explanation = "Model analysis completed successfully using local ensemble."
-        
-        latency = time.time() - start_time
-        sentiment_map = {-1: "negative", 0: "neutral", 1: "positive"}
-        
-        # Format the final response using the selected output
-        pred_label = sentiment_map.get(final_pred_class, "neutral")
-        
-        logger.info(f"Model Outputs -> LR: {local_res['fast_pred']}, DistilBERT: {local_res['db_pred']}, Gemma: {gemma_res['prediction']}")
+            local = {"fast": None, "distilbert": None, "errors": {"all": str(e)}}
+        for tier in local["errors"]:
+            warnings.append(f"local_{tier}_failed")
 
-        response = {
-            "prediction": pred_label,
-            "confidence": round(final_confidence, 4),
+        fast_source = f"local:{self.fast_model_name.lower()}"
+        votes: Dict[str, Dict[str, Any]] = {}
+        local_decision = None  # (source, label, confidence)
+        if local["fast"] is not None:
+            label, conf = local["fast"]
+            votes[fast_source] = {"label": SENTIMENT_MAP.get(label, "neutral"), "confidence": round(conf, 4)}
+            local_decision = (fast_source, label, conf)
+        if local["distilbert"] is not None:
+            label, conf = local["distilbert"]
+            votes["local:distilbert"] = {"label": SENTIMENT_MAP.get(label, "neutral"), "confidence": round(conf, 4)}
+            if local_decision is None:
+                local_decision = ("local:distilbert", label, conf)
+
+        # 2. LLM, only when the mode asks for it
+        llm_attempted = False
+        llm_res = None
+        if mode == "llm" or (
+            mode == "hybrid" and (local_decision is None or local_decision[2] < self.confidence_threshold)
+        ):
+            llm_attempted = True
+            llm_res = await self._predict_llm_async(text)
+            if llm_res is None:
+                warnings.append("llm_unavailable")
+            else:
+                votes[llm_res["source"]] = {"label": SENTIMENT_MAP[llm_res["label"]], "confidence": None}
+
+        # 3. Decide, and report exactly who decided
+        if llm_res is not None:
+            source, label, confidence, explanation = llm_res["source"], llm_res["label"], None, llm_res["explanation"]
+            fallback_triggered = mode == "hybrid"
+        elif local_decision is not None:
+            source, label, confidence = local_decision
+            explanation = None
+            fallback_triggered = llm_attempted  # LLM was wanted but failed, so we fell back to local
+        else:
+            raise RuntimeError("No model available: local models failed to load/run and no LLM answered.")
+
+        latency = time.time() - start_time
+        logger.info(f"mode={mode} decided_by={source} votes={votes}")
+
+        return {
+            "prediction": SENTIMENT_MAP.get(label, "neutral"),
+            "confidence": None if confidence is None else round(confidence, 4),
             "latency_seconds": round(latency, 4),
-            "model_used": "Ensemble (DistilBERT + LR)", # Hide LLM output from frontend
-            "fallback_triggered": False,
+            "latency_ms": round(latency * 1000, 2),
+            "model_used": source,
+            "decision_source": source,
+            "inference_mode": mode,
+            "fallback_triggered": fallback_triggered,
             "explanation": explanation,
-            "internal_votes": {
-                "logistic_regression": sentiment_map.get(local_res["fast_pred"], "neutral"),
-                "distilbert": sentiment_map.get(local_res["db_pred"], "neutral")
-            }
+            "votes": votes,
+            "warnings": warnings,
         }
-            
-        return response

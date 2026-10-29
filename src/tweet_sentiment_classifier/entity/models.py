@@ -7,7 +7,7 @@ class PredictionLog(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     latency_ms = Column(Float, nullable=False)
-    confidence = Column(Float, nullable=False)
+    confidence = Column(Float, nullable=True)  # NULL when the decider (an LLM) reports no confidence
     model_used = Column(String, nullable=False)
     prediction = Column(String, nullable=False)
     text_length = Column(Integer, nullable=False)

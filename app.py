@@ -73,9 +73,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 # --- ML Pipeline & Agents ---
 try:
     logger.info("Initializing PredictionPipeline...")
-    # Set threshold to 1.01 to guarantee that every query hits the RoBERTa/DistilBERT 
-    # refinement tier, which can actually understand sarcasm, while keeping latency low.
-    pipeline = PredictionPipeline(confidence_threshold=1.01)
+    # INFERENCE_MODE (local | llm | hybrid) is read from the environment; default is local-only.
+    pipeline = PredictionPipeline()
 except Exception as e:
     logger.error(f"Failed to initialize full pipeline: {e}")
     pipeline = None
@@ -90,6 +89,16 @@ search_analysis_cache: Dict[str, Dict[str, Any]] = {}
 
 class SearchRequest(BaseModel):
     query: str
+
+def _log_prediction(db: Session, result: Dict[str, Any], latency_ms: float, text_length: int) -> None:
+    """Stage a PredictionLog row. confidence stays None when the decider reports none (LLM)."""
+    db.add(PredictionLog(
+        latency_ms=latency_ms,
+        confidence=result.get("confidence"),
+        model_used=result.get("decision_source") or result.get("model_used", "unknown"),
+        prediction=result.get("prediction", "unknown"),
+        text_length=text_length,
+    ))
 
 # --- Endpoints ---
 
@@ -114,14 +123,7 @@ async def predict_sentiment(text: str, db: Session = Depends(get_db)) -> Dict[st
     latency_ms = (time.time() - start_time) * 1000
     
     try:
-        db_log = PredictionLog(
-            latency_ms=latency_ms,
-            confidence=result.get("confidence", 0.0),
-            model_used=result.get("model_used", "unknown"),
-            prediction=result.get("prediction", "unknown"),
-            text_length=len(text)
-        )
-        db.add(db_log)
+        _log_prediction(db, result, latency_ms, len(text))
         db.commit()
     except Exception as e:
         logger.warning(f"Failed to save prediction log: {e}")
@@ -157,20 +159,13 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
             res = await pipeline.predict(text)
             latency_ms = (time.time() - start_time) * 1000
             
-            db_log = PredictionLog(
-                latency_ms=latency_ms,
-                confidence=res.get("confidence", 0.0),
-                model_used=res.get("model_used", "unknown"),
-                prediction=res.get("prediction", "unknown"),
-                text_length=len(text)
-            )
-            db.add(db_log)
-            
+            _log_prediction(db, res, latency_ms, len(text))
+
             results.append({
                 "text": text,
                 "prediction": res["prediction"],
                 "confidence": res["confidence"],
-                "model_used": res.get("model_used", "unknown")
+                "model_used": res.get("decision_source", "unknown")
             })
             
         db.commit()
@@ -219,19 +214,12 @@ async def search_analysis(request: SearchRequest, db: Session = Depends(get_db))
             res = await pipeline.predict(text)
             latency_ms = (time.time() - start_time) * 1000
             
-            db_log = PredictionLog(
-                latency_ms=latency_ms,
-                confidence=res.get("confidence", 0.0),
-                model_used=res.get("model_used", "unknown"),
-                prediction=res.get("prediction", "unknown"),
-                text_length=len(text)
-            )
-            db.add(db_log)
-            
+            _log_prediction(db, res, latency_ms, len(text))
+
             predictions.append({
                 "text": text,
                 "prediction": res["prediction"],
-                "confidence": res.get("confidence", 0.0)
+                "confidence": res.get("confidence")
             })
             
             pred = res["prediction"]

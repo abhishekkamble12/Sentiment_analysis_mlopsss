@@ -55,7 +55,7 @@
             {{ metric_card('Total Processed', '<span x-text="stats.total"></span>', '<svg class="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>', 'indigo-400', 'Rows detected') }}
             {{ metric_card('Positive Sentiment', '<span x-text="stats.positivePercent + \'%\'"></span>', '<svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg>', 'emerald-400') }}
             {{ metric_card('Negative Sentiment', '<span x-text="stats.negativePercent + \'%\'"></span>', '<svg class="w-6 h-6 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5"></path></svg>', 'rose-400') }}
-            {{ metric_card('Avg Confidence', '<span x-text="stats.avgConfidence + \'%\'"></span>', '<svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>', 'cyan-400') }}
+            {{ metric_card('Avg Confidence', '<span x-text="stats.avgConfidence === \'n/a\' ? \'n/a\' : stats.avgConfidence + \'%\'"></span>', '<svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>', 'cyan-400') }}
         </div>
 
         <!-- Charts Row -->
@@ -141,7 +141,7 @@
                                           'bg-slate-500/10 text-slate-400 border border-slate-500/20': item.prediction === 'neutral'
                                       }" x-text="item.prediction"></span>
                             </td>
-                            <td class="py-3 px-4 text-sm font-mono text-cyan-400" x-text="(item.confidence * 100).toFixed(1) + '%'"></td>
+                            <td class="py-3 px-4 text-sm font-mono text-cyan-400" x-text="item.confidence == null ? 'n/a' : (item.confidence * 100).toFixed(1) + '%'"></td>
                             <td class="py-3 pl-4 text-xs text-indigo-300" x-text="item.model_used"></td>
                         </tr>
                     </template>
@@ -228,16 +228,16 @@ document.addEventListener('alpine:init', () => {
             this.stats.total = this.results.length;
             if(this.stats.total === 0) return;
             
-            let pos = 0, neg = 0, confSum = 0;
+            let pos = 0, neg = 0, confSum = 0, confN = 0;
             this.results.forEach(r => {
                 if(r.prediction === 'positive') pos++;
                 if(r.prediction === 'negative') neg++;
-                confSum += r.confidence;
+                if(r.confidence != null) { confSum += r.confidence; confN++; }
             });
             
             this.stats.positivePercent = ((pos / this.stats.total) * 100).toFixed(1);
             this.stats.negativePercent = ((neg / this.stats.total) * 100).toFixed(1);
-            this.stats.avgConfidence = ((confSum / this.stats.total) * 100).toFixed(1);
+            this.stats.avgConfidence = confN ? ((confSum / confN) * 100).toFixed(1) : 'n/a';
         },
         
         initCharts() {
@@ -279,6 +279,7 @@ document.addEventListener('alpine:init', () => {
                 // Group into buckets
                 const buckets = {'<0.5':0, '0.5-0.7':0, '0.7-0.9':0, '>0.9':0};
                 this.results.forEach(r => {
+                    if(r.confidence == null) return;
                     if(r.confidence < 0.5) buckets['<0.5']++;
                     else if(r.confidence < 0.7) buckets['0.5-0.7']++;
                     else if(r.confidence < 0.9) buckets['0.7-0.9']++;
