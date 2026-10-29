@@ -68,3 +68,54 @@ def make_pipeline():
         p._predict_llm_async = _llm
         return p
     return _make
+
+
+# ---- shared API test fixtures ---------------------------------------------------------------
+
+LOCAL = {"prediction": "positive", "confidence": 0.9, "decision_source": "local:logisticregression",
+         "model_used": "local:logisticregression", "explanation": None}
+LLM = {"prediction": "negative", "confidence": None, "decision_source": "llm:groq/llama-3.1-8b-instant",
+       "model_used": "llm:groq/llama-3.1-8b-instant", "explanation": "angry"}
+
+
+class FakePipeline:
+    inference_mode = "local"
+
+    def __init__(self, by_text=None, default=LOCAL):
+        self.by_text, self.default = by_text or {}, default
+
+    async def predict(self, text):
+        return dict(self.by_text.get(text, self.default))
+
+
+@pytest.fixture(scope="module")
+def app_module():
+    import app as app_mod
+    return app_mod
+
+
+@pytest.fixture
+def env(app_module, monkeypatch):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from tweet_sentiment_classifier.config.database import Base, get_db
+
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    def _get_db():
+        db = Session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app_module.app.dependency_overrides[get_db] = _get_db
+    app_module.predict_cache.clear()
+    app_module.search_analysis_cache.clear()
+    monkeypatch.setattr(app_module, "pipeline", FakePipeline())
+    yield TestClient(app_module.app), Session
+    app_module.app.dependency_overrides.clear()

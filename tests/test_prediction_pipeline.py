@@ -81,20 +81,6 @@ def test_no_model_and_no_llm_raises(make_pipeline):
         run(p)
 
 
-@pytest.mark.parametrize("text,expected", [
-    ("Label: 1\nExplanation: great", (1, "great")),
-    ("Label: -1\nExplanation: bad", (-1, "bad")),
-    ("Label: 0", (0, "")),
-    ("Label: 2", None),
-    ("Label: 10", None),
-    ("positive!", None),
-    ("", None),
-    (None, None),
-])
-def test_parse_llm_response(text, expected):
-    assert PredictionPipeline._parse_llm_response(text) == expected
-
-
 def test_invalid_inference_mode_rejected():
     with pytest.raises(ValueError, match="INFERENCE_MODE"):
         PredictionPipeline(inference_mode="ensemble")

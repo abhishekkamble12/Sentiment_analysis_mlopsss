@@ -7,54 +7,12 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from tweet_sentiment_classifier.config.database import Base, get_db
+from conftest import LLM, LOCAL, FakePipeline
+from tweet_sentiment_classifier.config.database import get_db
 from tweet_sentiment_classifier.entity.models import PredictionLog, ReportLog
 
 REPO = Path(__file__).resolve().parents[1]
-
-LOCAL = {"prediction": "positive", "confidence": 0.9, "decision_source": "local:logisticregression",
-         "model_used": "local:logisticregression", "explanation": None}
-LLM = {"prediction": "negative", "confidence": None, "decision_source": "llm:groq/llama-3.1-8b-instant",
-       "model_used": "llm:groq/llama-3.1-8b-instant", "explanation": "angry"}
-
-
-class FakePipeline:
-    def __init__(self, by_text=None, default=LOCAL):
-        self.by_text, self.default = by_text or {}, default
-
-    async def predict(self, text):
-        return dict(self.by_text.get(text, self.default))
-
-
-@pytest.fixture(scope="module")
-def app_module():
-    import app as app_mod
-    return app_mod
-
-
-@pytest.fixture
-def env(app_module, monkeypatch):
-    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-
-    def _get_db():
-        db = Session()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app_module.app.dependency_overrides[get_db] = _get_db
-    app_module.predict_cache.clear()
-    app_module.search_analysis_cache.clear()
-    monkeypatch.setattr(app_module, "pipeline", FakePipeline())
-    yield TestClient(app_module.app), Session
-    app_module.app.dependency_overrides.clear()
 
 
 def add_logs(Session, rows):
@@ -243,3 +201,9 @@ def test_no_simulated_data_in_pages_or_queries():
         assert "Math.random" not in text, page.name
         assert "updateSimulatedLogs" not in text, page.name
     assert "func.strftime" not in (REPO / "app.py").read_text(encoding="utf-8")  # SQLite-only SQL
+
+
+def test_no_page_renders_model_output_as_raw_html():
+    # LLM text can be steered by tweet content, so x-html on it would be a prompt-injection -> XSS path
+    for page in (REPO / "templates").rglob("*.html"):
+        assert "x-html" not in page.read_text(encoding="utf-8"), page.name

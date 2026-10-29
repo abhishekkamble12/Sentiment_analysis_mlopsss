@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import pandas as pd
+import asyncio
 import io
 import json
 import time
@@ -117,159 +118,168 @@ def _log_prediction(db: Session, result: Dict[str, Any], latency_ms: float, text
 async def health_check():
     return {"status": "ok", "message": "Backend is running!"}
 
+MIN_SEARCH_RESULTS = 3
+
+
 @app.post("/predict")
 async def predict_sentiment(text: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
     if not pipeline:
         raise HTTPException(status_code=500, detail="Pipeline not initialized (models missing).")
     if not text or not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
-        
+
     text = text.strip()
+    if len(text) > settings.MAX_TEXT_CHARS:
+        raise HTTPException(status_code=413, detail=f"Text is too long (max {settings.MAX_TEXT_CHARS} characters).")
     if text in predict_cache:
         logger.info("Cache hit for /predict")
         return predict_cache[text]
-    
+
     start_time = time.time()
     result = await pipeline.predict(text)
     latency_ms = (time.time() - start_time) * 1000
-    
+
     try:
         _log_prediction(db, result, latency_ms, len(text))
         db.commit()
     except Exception as e:
         logger.warning(f"Failed to save prediction log: {e}")
         db.rollback()
-        
+
     # Keep cache size bounded
     if len(predict_cache) > 1000:
         predict_cache.clear()
     predict_cache[text] = result
     return result
 
+
 @app.post("/upload_csv")
 async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not pipeline:
         raise HTTPException(status_code=500, detail="Pipeline not initialized.")
-    if not file.filename.endswith('.csv'):
+    if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are allowed.")
-    
-    try:
-        contents = await file.read()
-        df = pd.read_csv(io.BytesIO(contents))
-        
-        if 'text' not in df.columns:
-            raise HTTPException(status_code=400, detail="CSV must contain a 'text' column.")
-            
-        results = []
-        for text in df['text'].astype(str):
-            text = text.strip()
-            if not text:
-                continue
-                
-            start_time = time.time()
-            res = await pipeline.predict(text)
-            latency_ms = (time.time() - start_time) * 1000
-            
-            _log_prediction(db, res, latency_ms, len(text))
 
-            results.append({
-                "text": text,
-                "prediction": res["prediction"],
-                "confidence": res["confidence"],
-                "model_used": res.get("decision_source", "unknown")
-            })
-            
-        db.commit()
-        
-        # Generate an AI Report for the bulk upload
-        # Limit to first 50 to avoid massive prompt token usage, but provide enough context
-        report = report_agent.generate_report("Bulk CSV Upload", results[:50]) if report_agent else None
-        
-        return JSONResponse(content={"results": results, "total_processed": len(results), "report": report})
-    finally:
-        del contents
-        if 'df' in locals():
-            del df
+    # Read one byte past the limit so an oversize upload is detected without buffering all of it
+    contents = await file.read(settings.MAX_UPLOAD_BYTES + 1)
+    if len(contents) > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File is larger than {settings.MAX_UPLOAD_BYTES // 1_000_000} MB.")
+
+    try:
+        df = pd.read_csv(io.BytesIO(contents))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not parse the file as CSV.")
+    if 'text' not in df.columns:
+        raise HTTPException(status_code=400, detail="CSV must contain a 'text' column.")
+
+    mode = getattr(pipeline, "inference_mode", "local")
+    max_rows = settings.MAX_CSV_ROWS if mode == "local" else settings.MAX_CSV_ROWS_LLM
+    if len(df) > max_rows:
+        raise HTTPException(status_code=413, detail=f"CSV has {len(df)} rows; the limit is {max_rows} in '{mode}' mode.")
+
+    results = []
+    for text in df['text'].dropna().astype(str):  # blank cells are skipped, not classified as "nan"
+        text = text.strip()[:settings.MAX_TEXT_CHARS]
+        if not text:
+            continue
+
+        start_time = time.time()
+        res = await pipeline.predict(text)
+        latency_ms = (time.time() - start_time) * 1000
+
+        _log_prediction(db, res, latency_ms, len(text))
+
+        results.append({
+            "text": text,
+            "prediction": res["prediction"],
+            "confidence": res["confidence"],
+            "model_used": res.get("decision_source", "unknown")
+        })
+
+    db.commit()
+
+    # Limit the report to the first 50 rows to bound prompt size; the blocking LLM call runs in a thread
+    report = await asyncio.to_thread(report_agent.generate_report, "Bulk CSV Upload", results[:50]) if report_agent else None
+
+    return JSONResponse(content={"results": results, "total_processed": len(results), "report": report})
+
 
 @app.post("/search-analysis")
 async def search_analysis(request: SearchRequest, db: Session = Depends(get_db)):
     if not pipeline:
         raise HTTPException(status_code=500, detail="Pipeline not initialized.")
-        
     if not search_agent or not report_agent:
         raise HTTPException(status_code=503, detail="Search analysis needs the LangChain agents and GROQ_API_KEY.")
+
     query = request.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
-        
+    if len(query) > settings.MAX_QUERY_CHARS:
+        raise HTTPException(status_code=413, detail=f"Query is too long (max {settings.MAX_QUERY_CHARS} characters).")
+
     if query in search_analysis_cache:
         logger.info("Cache hit for /search-analysis")
         return JSONResponse(content=search_analysis_cache[query])
-        
-    try:
-        search_res = search_agent.search(query)
-        if isinstance(search_res, dict):
-            search_results = search_res.get("results", [])
-            fallback_used = search_res.get("fallback_used", False)
-        else:
-            search_results = search_res
-            fallback_used = False
-        
-        if not search_results:
-            return JSONResponse(content={"message": "No results found."})
-            
-        df = pd.DataFrame({"text": search_results})
-        predictions = []
-        sentiment_counts = {}
-        
-        for text in df["text"].astype(str):
-            start_time = time.time()
-            res = await pipeline.predict(text)
-            latency_ms = (time.time() - start_time) * 1000
-            
-            _log_prediction(db, res, latency_ms, len(text))
 
-            predictions.append({
-                "text": text,
-                "prediction": res["prediction"],
-                "confidence": res.get("confidence")
-            })
-            
-            pred = res["prediction"]
-            sentiment_counts[pred] = sentiment_counts.get(pred, 0) + 1
-            
-        db.commit()
-        report = report_agent.generate_report(query, predictions)
-        
-        report_log = ReportLog(
-            query=query,
-            top_keywords=report.get("keyword_extraction", []),
-            sentiment_distribution=sentiment_counts,
-            fallback_used=fallback_used
-        )
-        db.add(report_log)
-        db.commit()
-        
-        response_data = {
-            "distribution": sentiment_counts,
-            "top_keywords": report.get("keyword_extraction", []),
-            "confidence_summary": report.get("confidence_summary", ""),
-            "report": {
-                "prediction_explanation": report.get("prediction_explanation", ""),
-                "sentiment_report": report.get("sentiment_report", ""),
-                "insights": report.get("insights", "")
-            }
+    # Search and report generation are blocking network calls: keep them off the event loop
+    search_res = await asyncio.to_thread(search_agent.search, query)
+    search_results = [t[:settings.MAX_TEXT_CHARS] for t in search_res.get("results", [])]
+    fallback_used = search_res.get("fallback_used", False)
+
+    if not search_results:
+        return JSONResponse(content={"message": "No results found."})
+    if len(search_results) < MIN_SEARCH_RESULTS:
+        return JSONResponse(content={
+            "message": f"Only {len(search_results)} relevant result(s) found; at least {MIN_SEARCH_RESULTS} are needed for an analysis."
+        })
+
+    predictions = []
+    sentiment_counts = {}
+
+    for text in search_results:
+        start_time = time.time()
+        res = await pipeline.predict(text)
+        latency_ms = (time.time() - start_time) * 1000
+
+        _log_prediction(db, res, latency_ms, len(text))
+
+        predictions.append({
+            "text": text,
+            "prediction": res["prediction"],
+            "confidence": res.get("confidence")
+        })
+
+        pred = res["prediction"]
+        sentiment_counts[pred] = sentiment_counts.get(pred, 0) + 1
+
+    db.commit()
+    report = await asyncio.to_thread(report_agent.generate_report, query, predictions)
+
+    db.add(ReportLog(
+        query=query,
+        top_keywords=report.get("keyword_extraction", []),
+        sentiment_distribution=sentiment_counts,
+        fallback_used=fallback_used
+    ))
+    db.commit()
+
+    response_data = {
+        "distribution": sentiment_counts,
+        "sources": search_res.get("sources", {}),
+        "top_keywords": report.get("keyword_extraction", []),
+        "confidence_summary": report.get("confidence_summary", ""),
+        "report": {
+            "prediction_explanation": report.get("prediction_explanation", ""),
+            "sentiment_report": report.get("sentiment_report", ""),
+            "insights": report.get("insights", "")
         }
-        
-        if len(search_analysis_cache) > 500:
-            search_analysis_cache.clear()
-        search_analysis_cache[query] = response_data
-        
-        return JSONResponse(content=response_data)
-        
-    finally:
-        if 'df' in locals():
-            del df
+    }
+
+    if len(search_analysis_cache) > 500:
+        search_analysis_cache.clear()
+    search_analysis_cache[query] = response_data
+
+    return JSONResponse(content=response_data)
 
 LABEL_ALIASES = {"-1": "negative", "-1.0": "negative", "0": "neutral", "0.0": "neutral", "1": "positive", "1.0": "positive"}
 

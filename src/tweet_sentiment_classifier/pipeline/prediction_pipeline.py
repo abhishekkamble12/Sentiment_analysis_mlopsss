@@ -1,5 +1,4 @@
 import os
-import re
 import time
 import json
 import joblib
@@ -15,6 +14,7 @@ from tweet_sentiment_classifier import logger
 from sklearn.base import BaseEstimator
 
 from tweet_sentiment_classifier.config.env_config import get_settings
+from tweet_sentiment_classifier.utils.llm_safety import build_sentiment_prompt, parse_sentiment_json
 
 # Environment variable for HF Gemma token
 settings = get_settings()
@@ -143,12 +143,11 @@ class PredictionPipeline:
         return pred_idx - 1, float(probs[pred_idx])  # training maps sentiment -1,0,1 -> 0,1,2
 
     async def _predict_llm_async(self, text: str) -> dict | None:
-        """Ask an external LLM for a label. Returns None on any failure; never invents a label."""
-        prompt = (
-            "Analyze the sentiment of the following tweet and return exactly -1 for negative, "
-            "0 for neutral, or 1 for positive. Also provide a brief explanation. "
-            f"Tweet: '{text}'.\nFormat: Label: [label]\nExplanation: [explanation]"
-        )
+        """Ask an external LLM for a label. Returns None on any failure; never invents a label.
+
+        The SDK calls are blocking, so they run in a worker thread to keep the event loop free.
+        """
+        prompt = build_sentiment_prompt(text)
 
         candidates = []  # (source, callable returning text)
         if self.hf_client:
@@ -163,25 +162,17 @@ class PredictionPipeline:
 
         for source, call in candidates:
             try:
-                response_text = call()
+                response_text = await asyncio.to_thread(call)
             except Exception as e:
                 logger.warning(f"{source} failed: {e}")
                 continue
-            parsed = self._parse_llm_response(response_text)
+            parsed = parse_sentiment_json(response_text)
             if parsed is None:
-                logger.warning(f"{source} returned an unparseable label: {str(response_text)[:120]!r}")
+                logger.warning(f"{source} returned an invalid classification: {str(response_text)[:120]!r}")
                 continue
             label, explanation = parsed
             return {"label": label, "explanation": explanation, "source": source}
         return None
-
-    @staticmethod
-    def _parse_llm_response(response_text: str) -> tuple[int, str] | None:
-        match = re.search(r"Label:\s*(-1|0|1)\b", response_text or "")
-        if not match:
-            return None
-        explanation = response_text.split("Explanation:", 1)[1].strip() if "Explanation:" in response_text else ""
-        return int(match.group(1)), explanation
 
     def _sync_predict_local_tiers(self, cleaned_text: str) -> dict:
         """Run each local model independently; a failing tier is reported, not masked."""

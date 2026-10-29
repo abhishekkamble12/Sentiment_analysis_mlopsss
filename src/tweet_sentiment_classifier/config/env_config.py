@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     # local: trained models only | llm: LLM decides | hybrid: LLM only when local confidence is low
     INFERENCE_MODE: str = "local"
     HYBRID_CONFIDENCE_THRESHOLD: float = 0.75
+    # Request limits (a CSV row can cost one LLM call in llm/hybrid mode)
+    MAX_UPLOAD_BYTES: int = 5_000_000
+    MAX_CSV_ROWS: int = 1000
+    MAX_CSV_ROWS_LLM: int = 100
+    MAX_TEXT_CHARS: int = 2000
+    MAX_QUERY_CHARS: int = 200
 
     class Config:
         env_file = ".env"

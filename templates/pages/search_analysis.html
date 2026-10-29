@@ -50,6 +50,12 @@
     <!-- Results Section -->
     <div x-show="hasSearched && !isLoading && result" style="display: none;" class="flex-1 flex flex-col gap-6" x-transition:enter="transition ease-out duration-700" x-transition:enter-start="opacity-0 translate-y-10" x-transition:enter-end="opacity-100 translate-y-0">
         
+        <p class="text-xs text-slate-500" x-show="result?.sources">
+            Analysed <span x-text="(result?.sources?.web || 0) + (result?.sources?.rss || 0)"></span> text fragments:
+            <span x-text="result?.sources?.web || 0"></span> from web search<span x-show="(result?.sources?.rss || 0) > 0">,
+            <span x-text="result?.sources?.rss"></span> from news RSS headlines that mention the query (web search returned too little)</span>.
+        </p>
+
         <!-- Live Sentiment Distribution -->
         <div class="grid grid-cols-3 gap-4">
             <div class="glass-card p-4 text-center border-t-2 border-emerald-500">
@@ -107,7 +113,7 @@
                     
                     <div>
                         <h5 class="text-sm font-bold text-emerald-400 mb-2 border-l-2 border-emerald-500 pl-2">Key Insights & Policy Impact</h5>
-                        <div class="text-sm text-slate-400 leading-relaxed bg-emerald-500/5 p-3 rounded-r-lg border border-emerald-500/10" x-html="formatInsights(result?.report?.insights)"></div>
+                        <div class="text-sm text-slate-400 leading-relaxed bg-emerald-500/5 p-3 rounded-r-lg border border-emerald-500/10" x-text="formatInsights(result?.report?.insights)" style="white-space: pre-wrap"></div>
                     </div>
                 </div>
             </div>
@@ -129,7 +135,7 @@ document.addEventListener('alpine:init', () => {
         formatInsights(text) {
             if(!text) return '';
             // Basic markdown-like replacement for bullet points
-            return text.replace(/\n-/g, '<br/>•').replace(/\n\*/g, '<br/>•');
+            return text.replace(/\n[-*]/g, '\n•');
         },
         
         async performSearch() {
@@ -153,8 +159,8 @@ document.addEventListener('alpine:init', () => {
                 }
                 
                 const data = await response.json();
-                if(data.message && data.message === "No results found.") {
-                    this.error = "No unstructured data found for this query.";
+                if(data.message) {
+                    this.error = data.message === "No results found." ? "No unstructured data found for this query." : data.message;
                     return;
                 }
                 
