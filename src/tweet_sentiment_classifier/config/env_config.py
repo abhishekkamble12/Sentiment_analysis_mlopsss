@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # local: trained models only | llm: LLM decides | hybrid: LLM only when local confidence is low
     INFERENCE_MODE: str = "local"
     HYBRID_CONFIDENCE_THRESHOLD: float = 0.75
+    # Local decisions below this confidence are returned as "uncertain" (off when unset). Choose it on the
+    # validation split: python -m tweet_sentiment_classifier.evaluation.abstain
+    ABSTAIN_THRESHOLD: float | None = None
     # Request limits (a CSV row can cost one LLM call in llm/hybrid mode)
     MAX_UPLOAD_BYTES: int = 5_000_000
     MAX_CSV_ROWS: int = 1000

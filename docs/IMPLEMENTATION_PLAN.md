@@ -1,6 +1,7 @@
 # Implementation plan: from classifier to topic-monitoring platform with GenAI and an agent
 
-Status: proposed, 2026-10-29. Supersedes nothing: `docs/REMAINING_PLAN.md` (gold set, GPU fine-tuning, paper)
+Status: Phase 0 done, Phase 1 mostly done (analytics/model routers still query the DB; that moves into
+`AnalyticsService` in Phase 4), Phase 2 done, React UI started early (it is now the product UI). 2026-10-29. Supersedes nothing: `docs/REMAINING_PLAN.md` (gold set, GPU fine-tuning, paper)
 continues as the parallel research track.
 
 ## 1. What we are building
@@ -196,6 +197,14 @@ Docker still work.
 punctuation and URLs; `explanation` is `null` for a model without `coef_`; abstain triggers below threshold;
 correction endpoint validates the label set and length limits.
 **Acceptance:** explanations add < 2 ms p50 (measure and record).
+
+**Done (2026-10-29).** Measured on the served model: 0.84 ms per explanation (mean of 200 calls). The served
+model averages three sigmoid-calibrated folds, so each fold's coefficients are scaled by its calibrator slope
+before averaging and the result is labelled approximate. Abstain threshold chosen on validation
+(`artifacts/evaluation/abstain.json`): 0.7273, coverage 86.9%, kept silver accuracy 97.0%; off by default.
+Corrections are on the React predict page only (the Streamlit demo has no database); Streamlit shows the
+term table. Rows logged as `uncertain` appear as neutral on the React history/dashboard pages until those
+pages learn the label.
 
 ---------------------------------------------------------------------------------------------------------
 

@@ -7,6 +7,7 @@ import type {
   PredictionHistory,
   PredictionResult,
   RecentLog,
+  Sentiment,
 } from '../types'
 
 // Relative paths work in both modes:
@@ -33,6 +34,13 @@ export const api = {
 
   predict: (text: string) =>
     http.post<PredictionResult>('/api/predict', { text }).then((r) => r.data),
+
+  submitCorrection: (body: {
+    text: string
+    predicted: Sentiment | 'uncertain'
+    corrected: Sentiment
+    decision_source: string
+  }) => http.post<{ status: string; id: number }>('/api/v1/corrections', body).then((r) => r.data),
 
   uploadCsv: (file: File) => {
     const form = new FormData()

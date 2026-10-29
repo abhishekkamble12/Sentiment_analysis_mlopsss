@@ -1,0 +1,11 @@
+{
+  "threshold": 0.7273,
+  "target_accuracy": 0.97,
+  "coverage": 0.869,
+  "kept_accuracy": 0.97,
+  "overall_accuracy": 0.9403,
+  "n": 15959,
+  "split": "validation",
+  "labels": "silver (TextBlob-generated)",
+  "model": "artifacts/best_model/best_model.pkl"
+}

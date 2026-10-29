@@ -2,8 +2,23 @@
 
 export type Sentiment = 'positive' | 'neutral' | 'negative'
 
+export interface TermContribution {
+  term: string
+  weight: number
+  spans: [number, number][]
+}
+
+export interface Contributions {
+  method: string
+  label: Sentiment
+  supporting: TermContribution[]
+  opposing: TermContribution[]
+  note: string
+}
+
 export interface PredictionResult {
-  prediction: Sentiment
+  /** 'uncertain' when the local model abstains (confidence below ABSTAIN_THRESHOLD) */
+  prediction: Sentiment | 'uncertain'
   confidence: number | null
   latency_seconds: number
   latency_ms: number
@@ -12,6 +27,7 @@ export interface PredictionResult {
   inference_mode: string
   fallback_triggered: boolean
   explanation: string | null
+  contributions: Contributions | null
   votes: Record<string, { label: Sentiment; confidence: number | null }>
   warnings: string[]
 }

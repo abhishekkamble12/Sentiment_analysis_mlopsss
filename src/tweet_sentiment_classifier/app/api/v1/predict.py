@@ -7,7 +7,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from tweet_sentiment_classifier.app.deps import get_container, get_db
-from tweet_sentiment_classifier.app.schemas import FormSubmissionRequest, PredictRequest, SearchRequest
+from tweet_sentiment_classifier.app.schemas import (CorrectionRequest, FormSubmissionRequest, PredictRequest,
+                                                    SearchRequest)
 from tweet_sentiment_classifier.app.services import prediction_service, report_service
 
 router = APIRouter(tags=["predict"])
@@ -22,6 +23,12 @@ async def health_check():
 async def predict_json(req: PredictRequest, db: Session = Depends(get_db), c=Depends(get_container)) -> Dict[str, Any]:
     """JSON prediction: validate, predict, persist, cache."""
     return await prediction_service.predict_and_log(c, req.text, db)
+
+
+@router.post("/corrections", status_code=201)
+async def submit_correction(req: CorrectionRequest, db: Session = Depends(get_db)):
+    """A user reports a wrong prediction (stored for review, not used for training)."""
+    return await prediction_service.save_correction(req, db)
 
 
 @router.post("/predict/batch")

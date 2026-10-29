@@ -41,7 +41,7 @@ def test_fresh_database_gets_all_tables_with_nullable_confidence(db_path):
     upgrade()
     con = sqlite3.connect(db_path)
     tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
-    assert {"prediction_logs", "reports", "monitoring_metrics", "alembic_version"} <= tables
+    assert {"prediction_logs", "reports", "monitoring_metrics", "label_corrections", "alembic_version"} <= tables
     con.execute(INSERT_NULL)  # would raise IntegrityError if confidence were still NOT NULL
 
 
@@ -62,4 +62,4 @@ def test_existing_database_keeps_its_rows_and_accepts_null_confidence(db_path):
     con.execute(INSERT_NULL)
     con.commit()
     assert con.execute("select count(*) from prediction_logs").fetchone()[0] == 2
-    assert "monitoring_metrics" in {r[0] for r in con.execute("select name from sqlite_master")}
+    assert {"monitoring_metrics", "label_corrections"} <= {r[0] for r in con.execute("select name from sqlite_master")}

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from tweet_sentiment_classifier.components.data_transformation import clean_text  # noqa: E402
+from tweet_sentiment_classifier.pipeline.explain import LinearExplainer  # noqa: E402
 
 MAX_CSV_ROWS = 1000
 
@@ -181,6 +182,17 @@ with tab1:
             prob_dict = {LABEL_MAP.get(c, str(c)): float(p) for c, p in zip(classes, probs)}
             chart_df = pd.DataFrame(list(prob_dict.items()), columns=["Sentiment", "Probability"]).set_index("Sentiment")
             st.bar_chart(chart_df)
+
+            explainer = LinearExplainer.maybe(model, vectorizer)
+            if explainer is not None:
+                out = explainer.explain(user_text, cleaned, raw_class)
+                st.write("#### Words behind this prediction")
+                rows = [{"term": t["term"], "weight": t["weight"], "effect": f"toward {label.lower()}"}
+                        for t in out["supporting"]]
+                rows += [{"term": t["term"], "weight": t["weight"], "effect": f"against {label.lower()}"}
+                         for t in out["opposing"]]
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+                st.caption(out["note"])
 
 # ================= TAB 2: BATCH CSV PROCESSING =================
 with tab2:

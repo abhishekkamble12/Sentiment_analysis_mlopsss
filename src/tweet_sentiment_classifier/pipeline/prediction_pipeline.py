@@ -14,6 +14,7 @@ from tweet_sentiment_classifier import logger
 from sklearn.base import BaseEstimator
 
 from tweet_sentiment_classifier.config.env_config import get_settings
+from tweet_sentiment_classifier.pipeline.explain import LinearExplainer
 from tweet_sentiment_classifier.utils.llm_safety import build_sentiment_prompt, parse_sentiment_json
 
 # Environment variable for HF Gemma token
@@ -46,6 +47,7 @@ class PredictionPipeline:
         self.confidence_threshold = (
             settings.HYBRID_CONFIDENCE_THRESHOLD if confidence_threshold is None else confidence_threshold
         )
+        self.abstain_threshold = settings.ABSTAIN_THRESHOLD
         self.config_manager = ConfigurationManager()
         self.best_model_config = self.config_manager.get_best_model_config()
         self.metadata_path = Path(self.best_model_config.metadata_path)
@@ -61,6 +63,7 @@ class PredictionPipeline:
             
         # Load models
         self._load_models()
+        self.explainer = LinearExplainer.maybe(self.fast_model, self.vectorizer) if self.vectorizer else None
         self.hf_client = InferenceClient(HF_LLM_ID, token=HF_API_TOKEN) if HF_API_TOKEN else None
         
         # Dummy config for DataTransformation (we only need clean_text method)
@@ -246,11 +249,25 @@ class PredictionPipeline:
         else:
             raise RuntimeError("No model available: local models failed to load/run and no LLM answered.")
 
+        contributions = None
+        explainer = getattr(self, "explainer", None)
+        if source == fast_source and explainer is not None:
+            try:
+                contributions = explainer.explain(text, cleaned_text, label)
+            except Exception as e:
+                logger.warning(f"Explanation failed: {e}")
+
+        prediction = SENTIMENT_MAP.get(label, "neutral")
+        abstain = getattr(self, "abstain_threshold", None)
+        if abstain is not None and confidence is not None and confidence < abstain:
+            prediction = "uncertain"  # a local decision below the validated threshold is not reported as a label
+            warnings.append("abstained_low_confidence")
+
         latency = time.time() - start_time
         logger.info(f"mode={mode} decided_by={source} votes={votes}")
 
         return {
-            "prediction": SENTIMENT_MAP.get(label, "neutral"),
+            "prediction": prediction,
             "confidence": None if confidence is None else round(confidence, 4),
             "latency_seconds": round(latency, 4),
             "latency_ms": round(latency * 1000, 2),
@@ -259,6 +276,7 @@ class PredictionPipeline:
             "inference_mode": mode,
             "fallback_triggered": fallback_triggered,
             "explanation": explanation,
+            "contributions": contributions,
             "votes": votes,
             "warnings": warnings,
         }

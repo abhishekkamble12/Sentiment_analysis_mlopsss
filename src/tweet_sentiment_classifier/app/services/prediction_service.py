@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from tweet_sentiment_classifier.config.env_config import get_settings
-from tweet_sentiment_classifier.entity.models import PredictionLog
+from tweet_sentiment_classifier.entity.models import LabelCorrection, PredictionLog
 
 logger = logging.getLogger("api")
 settings = get_settings()
@@ -154,3 +154,14 @@ async def submit_form(c, form_req, db: Session) -> Dict[str, Any]:
         "model_used": res.get("decision_source", "unknown"),
         "respondent": form_req.respondent or "Anonymous",
     }
+
+
+async def save_correction(req, db: Session) -> Dict[str, Any]:
+    """Store a user's "wrong label" report. It is an annotation candidate, never a training label."""
+    if req.predicted == req.corrected:
+        raise HTTPException(status_code=400, detail="The corrected label is the same as the predicted one.")
+    row = LabelCorrection(text=req.text.strip(), predicted=req.predicted, corrected=req.corrected,
+                          decision_source=req.decision_source)
+    db.add(row)
+    await run_in_threadpool(db.commit)
+    return {"status": "stored", "id": row.id}

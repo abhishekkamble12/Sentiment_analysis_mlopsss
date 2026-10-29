@@ -44,6 +44,8 @@ def test_typed_negative_text_is_negative():
     at.text_area[0].set_value("worst decision ever, shameful and terrible").run()
     _analyze(at)
     assert "Negative" in _prediction_html(at)
+    terms = next(d.value for d in at.dataframe if "term" in d.value.columns)
+    assert terms.iloc[0]["term"] == "worst" and terms.iloc[0]["effect"] == "toward negative"
 
 
 def test_empty_text_warns_instead_of_predicting():

@@ -35,3 +35,16 @@ class MonitoringMetric(Base):
     fallback_rate = Column(Float, nullable=False)
     prediction_distribution = Column(JSON, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class LabelCorrection(Base):
+    """A user saying a prediction is wrong. A candidate for annotation, never a training label on its own."""
+    __tablename__ = "label_corrections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    text = Column(String, nullable=False)
+    predicted = Column(String, nullable=False)
+    corrected = Column(String, nullable=False)
+    decision_source = Column(String, nullable=True)
+    reviewed = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

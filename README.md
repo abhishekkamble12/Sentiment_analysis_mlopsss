@@ -33,6 +33,18 @@ Every response reports `decision_source` (for example `local:logisticregression`
 no confidence (`null`). The optional transformer tier (`artifacts/model_trainer/model_DistilBERT`) is loaded
 only if its `config.json` declares exactly 3 labels; it contributes a vote but does not decide.
 
+When the linear local model decides, `contributions` lists the terms that pushed toward and against the
+predicted label, with their character spans for highlighting (`null` for non-linear models and LLM
+decisions). For the calibrated LinearSVC the weights are approximate; the ranking is what to read.
+
+`ABSTAIN_THRESHOLD` (unset by default) turns local decisions below that confidence into `"uncertain"`.
+Choose it on the validation split with
+`python -m tweet_sentiment_classifier.evaluation.abstain --val <val.csv>`; the current model gives 0.7273
+(86.9% of predictions kept, 97% agreement with the silver labels on those).
+
+`POST /api/v1/corrections` stores a user's "wrong label" report in `label_corrections`. These rows are
+candidates for annotation, never training labels.
+
 ## Web application (React + FastAPI)
 
 A React (Vite + TypeScript + Tailwind) dashboard consumes the FastAPI API. The backend also keeps
