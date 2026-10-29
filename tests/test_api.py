@@ -139,37 +139,51 @@ def test_analytics_errors_are_not_masked_as_zeros(env, app_module):
 
 # ---- /api/experiments ----------------------------------------------------------------------
 
-def write_summary(root):
-    d = root / "artifacts" / "model_evaluation"
+RESULT_COLUMNS = ["model", "n", "accuracy", "macro_f1", "macro_f1_ci_low", "macro_f1_ci_high", "weighted_f1", "kappa",
+                  "ece", "f1_negative", "f1_neutral", "f1_positive", "latency_p50_ms", "latency_p95_ms"]
+
+
+def write_summary(root, run_id="run-1"):
+    d = root / "artifacts" / "evaluation"
     d.mkdir(parents=True)
-    rows = [["Model Name", "Accuracy", "F1 Score (Weighted)", "F1 Score (Macro)", "Latency"],
-            ["LogisticRegression", 0.91, 0.91, 0.90, 1.8],
-            ["LinearSVC", 0.94, 0.94, 0.93, 1.6],
-            ["MultinomialNB", 0.77, 0.76, 0.74, 1.5]]
-    with open(d / "all_models_summary.csv", "w", newline="") as f:
-        csv.writer(f).writerows(rows)
+    rows = [["TextBlob", 100, 0.99, 0.99, 0.98, 1.0, 0.99, 0.99, "", 1, 1, 1, 0.3, 0.5],
+            ["LogisticRegression", 100, 0.91, 0.90, 0.89, 0.91, 0.91, 0.86, 0.05, 0.9, 0.9, 0.9, 1.0, 2.0],
+            ["LinearSVC", 100, 0.94, 0.93, 0.92, 0.94, 0.94, 0.90, 0.04, 0.9, 0.9, 0.9, 4.0, 6.0]]
+    with open(d / "results.csv", "w", newline="") as f:
+        csv.writer(f).writerows([RESULT_COLUMNS] + rows)
+    (d / "results.json").write_text(json.dumps({"run_id": run_id}))
 
 
-def test_experiment_status_follows_best_model_metadata(env, tmp_path, monkeypatch):
+def test_experiments_come_from_the_single_evaluation_run(env, tmp_path, monkeypatch):
     client, _ = env
     monkeypatch.chdir(tmp_path)
     write_summary(tmp_path)
     (tmp_path / "artifacts" / "best_model").mkdir()
     (tmp_path / "artifacts" / "best_model" / "best_model_metadata.json").write_text(
         json.dumps({"best_model_name": "LinearSVC", "tier_1_fast_fallback": "LinearSVC"}))
-    status = {e["model_name"]: e["status"] for e in client.get("/api/experiments").json()["experiments"]}
-    assert status == {"LogisticRegression": "Evaluated", "MultinomialNB": "Evaluated",
-                      "LinearSVC": "Serving (fast tier) + Best by macro-F1"}
+    body = client.get("/api/experiments").json()
+    exps = {e["model_name"]: e for e in body["experiments"]}
+    assert body["run_id"] == "run-1" and all(e["run_id"] == "run-1" for e in exps.values())
+    assert exps["LinearSVC"]["status"] == "Serving (fast tier) + Best by macro-F1"
+    assert exps["LogisticRegression"]["status"] == "Evaluated"
+    assert exps["TextBlob"]["status"] == "Baseline (label source)"
+    assert (exps["LinearSVC"]["ci_low"], exps["LinearSVC"]["ci_high"]) == (0.92, 0.94)
+    assert exps["TextBlob"]["ece"] is None and exps["LinearSVC"]["latency_p50_ms"] == 4.0
 
 
-def test_experiment_status_without_metadata_matches_pipeline_default(env, tmp_path, monkeypatch):
+def test_experiments_without_metadata_match_the_pipeline_default(env, tmp_path, monkeypatch):
     client, _ = env
     monkeypatch.chdir(tmp_path)
     write_summary(tmp_path)
     exps = {e["model_name"]: e for e in client.get("/api/experiments").json()["experiments"]}
     assert exps["LogisticRegression"]["status"] == "Serving (fast tier)"  # PredictionPipeline's default
     assert exps["LinearSVC"]["status"] == "Evaluated"
-    assert "eval_seconds" in exps["LinearSVC"] and "latency_seconds" not in exps["LinearSVC"]
+
+
+def test_experiments_empty_when_no_run_exists(env, tmp_path, monkeypatch):
+    client, _ = env
+    monkeypatch.chdir(tmp_path)
+    assert client.get("/api/experiments").json() == {"experiments": [], "run_id": None}
 
 
 # ---- optional components -------------------------------------------------------------------

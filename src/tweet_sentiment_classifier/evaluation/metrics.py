@@ -137,15 +137,25 @@ def fingerprint(texts: Iterable[str]) -> str:
     return h.hexdigest()[:16]
 
 
-def save_run(out_dir: Path, run_id: str, split_info: Dict[str, Any], results: Dict[str, Dict[str, Any]]) -> None:
+def save_run(out_dir: Path, run_id: str, split_info: Dict[str, Any], results: Dict[str, Dict[str, Any]],
+             comparisons: Optional[list] = None) -> None:
     """Write results.json and results.csv from scratch for one run (never appends to an old table)."""
     sizes = {name: r["n"] for name, r in results.items()}
     if len(set(sizes.values())) > 1:
         raise ValueError(f"models were evaluated on different numbers of rows: {sizes}")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"run_id": run_id, "split": split_info, "results": results}
+    payload = {"run_id": run_id, "split": split_info, "results": results, "comparisons": comparisons or []}
     (out_dir / "results.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    comp_path = out_dir / "comparisons.csv"
+    if comparisons:
+        with open(comp_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(comparisons[0]))
+            writer.writeheader()
+            writer.writerows(comparisons)
+    elif comp_path.exists():
+        comp_path.unlink()  # never leave a stale table from an earlier run next to new results
 
     columns = ["model", "n", "accuracy", "macro_f1", "macro_f1_ci_low", "macro_f1_ci_high", "weighted_f1", "kappa", "ece",
                "f1_negative", "f1_neutral", "f1_positive", "latency_p50_ms", "latency_p95_ms"]
@@ -159,3 +169,57 @@ def save_run(out_dir: Path, run_id: str, split_info: Dict[str, Any], results: Di
             writer.writerow([name, r["n"], r["accuracy"], r["macro_f1"], ci[0], ci[1], r["weighted_f1"], r["kappa"],
                              r.get("ece"), pc["negative"]["f1"], pc["neutral"]["f1"], pc["positive"]["f1"],
                              lat.get("p50_ms"), lat.get("p95_ms")])
+
+
+# ---- comparing two models on the same rows ---------------------------------------------------------------
+
+def paired_bootstrap(y_true: Iterable, pred_a: Iterable, pred_b: Iterable, metric: str = "macro_f1",
+                     n_boot: int = 1000, seed: int = 0, alpha: float = 0.05,
+                     classes: Sequence[int] = CLASSES) -> Dict[str, Any]:
+    """Difference metric(A) - metric(B) with a percentile CI, resampling the SAME rows for both models.
+
+    p_value is the two-sided share of resamples falling on the other side of zero (floored at
+    1/(n_boot+1)); it is an approximate p-value, adequate for ranking differences, not for tiny alphas.
+    """
+    if metric not in ("accuracy", "macro_f1", "weighted_f1", "kappa"):
+        raise ValueError(f"unsupported metric {metric!r}")
+    t, a, b = _encode(y_true, classes), _encode(pred_a, classes), _encode(pred_b, classes)
+    k, n = len(classes), len(t)
+    code_a, code_b = t * k + a, t * k + b
+
+    def score(code):
+        return _scores(np.bincount(code, minlength=k * k).reshape(k, k))[metric]
+
+    point = score(code_a) - score(code_b)
+    rng = np.random.default_rng(seed)
+    diffs = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = rng.integers(0, n, n)
+        diffs[i] = score(code_a[idx]) - score(code_b[idx])
+    lo, hi = np.percentile(diffs, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    p = 2 * min(float((diffs <= 0).mean()), float((diffs >= 0).mean()))
+    return {"diff": float(point), "ci": (float(lo), float(hi)), "p_value": float(min(1.0, max(p, 1 / (n_boot + 1))))}
+
+
+def mcnemar_exact(y_true: Iterable, pred_a: Iterable, pred_b: Iterable,
+                  classes: Sequence[int] = CLASSES) -> Dict[str, Any]:
+    """Exact McNemar test on the rows where exactly one of the two models is correct."""
+    from scipy.stats import binomtest
+    t, a, b = _encode(y_true, classes), _encode(pred_a, classes), _encode(pred_b, classes)
+    only_a = int(((a == t) & (b != t)).sum())
+    only_b = int(((a != t) & (b == t)).sum())
+    n = only_a + only_b
+    p = float(binomtest(min(only_a, only_b), n, 0.5).pvalue) if n else 1.0
+    return {"only_a_correct": only_a, "only_b_correct": only_b, "p_value": p}
+
+
+def holm_adjust(p_values: Sequence[float]) -> list:
+    """Holm-Bonferroni adjusted p-values, returned in the input order."""
+    m = len(p_values)
+    order = sorted(range(m), key=lambda i: p_values[i])
+    adjusted = [0.0] * m
+    running = 0.0
+    for rank, i in enumerate(order):
+        running = max(running, (m - rank) * p_values[i])
+        adjusted[i] = min(1.0, running)
+    return adjusted

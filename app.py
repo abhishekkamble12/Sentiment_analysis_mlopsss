@@ -418,15 +418,26 @@ def _load_best_model_meta() -> Dict[str, Any]:
         return {}
 
 
+BASELINE_MODELS = {"Majority", "TextBlob", "VADER"}
+
+
+def _optional_float(value):
+    return None if value is None or pd.isna(value) else round(float(value), 4)
+
+
 @app.get("/api/experiments")
 def get_experiments():
-    summary_path = Path("artifacts/model_evaluation/all_models_summary.csv")
+    """Results of the latest single evaluation run (artifacts/evaluation/results.csv)."""
+    summary_path = Path("artifacts/evaluation/results.csv")
     if not summary_path.exists():
-        return {"experiments": []}
+        return {"experiments": [], "run_id": None}
 
     try:
         df = pd.read_csv(summary_path)
-        df = df.fillna({"Accuracy": 0.0, "F1 Score (Weighted)": 0.0, "F1 Score (Macro)": 0.0, "Latency": 0.0, "Timestamp": ""})
+        run_id = None
+        results_json = summary_path.with_suffix(".json")
+        if results_json.exists():
+            run_id = json.loads(results_json.read_text(encoding="utf-8")).get("run_id")
 
         # Mirror what PredictionPipeline actually serves (see prediction_pipeline.py)
         meta = _load_best_model_meta()
@@ -435,23 +446,28 @@ def get_experiments():
 
         experiments = []
         for _, row in df.iterrows():
-            name = row.get("Model Name", "")
+            name = str(row["model"])
             labels = []
+            if name in BASELINE_MODELS:
+                labels.append("Baseline (label source)" if name == "TextBlob" else "Baseline")
             if name == fast:
                 labels.append("Serving (fast tier)")
             if name == best:
                 labels.append("Best by macro-F1")
             experiments.append({
-                "timestamp": row.get("Timestamp", "") or row.get("timestamp", ""),
+                "run_id": run_id,
                 "model_name": name,
-                "accuracy": round(float(row.get("Accuracy", 0.0)), 4),
-                "f1_weighted": round(float(row.get("F1 Score (Weighted)", 0.0)), 4),
-                "f1_macro": round(float(row.get("F1 Score (Macro)", 0.0)), 4),
-                # wall-clock time to evaluate the whole test set, not per-prediction latency
-                "eval_seconds": round(float(row.get("Latency", 0.0)), 4),
+                "n_test": int(row["n"]),
+                "accuracy": round(float(row["accuracy"]), 4),
+                "f1_macro": round(float(row["macro_f1"]), 4),
+                "f1_weighted": round(float(row["weighted_f1"]), 4),
+                "ci_low": _optional_float(row.get("macro_f1_ci_low")),
+                "ci_high": _optional_float(row.get("macro_f1_ci_high")),
+                "ece": _optional_float(row.get("ece")),
+                "latency_p50_ms": _optional_float(row.get("latency_p50_ms")),
                 "status": " + ".join(labels) or "Evaluated",
             })
-        return {"experiments": experiments}
+        return {"experiments": experiments, "run_id": run_id}
     except Exception as e:
         logger.error(f"Error reading experiments: {e}")
         return {"experiments": [], "error": str(e)}

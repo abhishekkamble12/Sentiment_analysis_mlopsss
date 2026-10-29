@@ -33,17 +33,17 @@
     <div class="glass-card overflow-hidden">
         <div class="p-6 border-b border-slate-800 flex justify-between items-center">
             <h3 class="text-lg font-semibold text-white">Model Leaderboard</h3>
-            <span class="text-xs px-2.5 py-1 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20 font-medium">CSV Backend Sync</span>
+            <span class="text-xs px-2.5 py-1 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20 font-medium">artifacts/evaluation/results.csv</span>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left">
                 <thead class="bg-slate-900/50">
                     <tr>
-                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Run / Model Name</th>
-                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Date / Timestamp</th>
+                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Model</th>
+                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Run</th>
                         <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Accuracy</th>
-                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">F1 Score (Weighted)</th>
-                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Eval time (whole test set)</th>
+                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Macro-F1 (95% CI)</th>
+                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Latency p50 / text</th>
                         <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Status</th>
                     </tr>
                 </thead>
@@ -54,10 +54,10 @@
                                 <span class="w-2 h-2 rounded-full mr-2" :class="getStatusDotColor(exp.status)"></span>
                                 <span class="text-white font-medium" x-text="exp.model_name"></span>
                             </td>
-                            <td class="px-6 py-4 text-sm text-slate-400 font-mono" x-text="exp.timestamp || 'N/A'"></td>
-                            <td class="px-6 py-4 text-sm text-emerald-400 font-mono font-semibold" x-text="exp.accuracy.toFixed(4)"></td>
-                            <td class="px-6 py-4 text-sm text-slate-300 font-mono" x-text="exp.f1_weighted.toFixed(4)"></td>
-                            <td class="px-6 py-4 text-sm text-slate-300 font-mono" x-text="exp.eval_seconds > 0 ? exp.eval_seconds.toFixed(2) + 's' : 'N/A'"></td>
+                            <td class="px-6 py-4 text-sm font-mono text-slate-400" x-text="exp.run_id || 'N/A'"></td>
+                            <td class="px-6 py-4 text-sm font-mono text-slate-300" x-text="exp.accuracy.toFixed(4)"></td>
+                            <td class="px-6 py-4 text-sm font-mono text-emerald-400 font-semibold" x-text="exp.f1_macro.toFixed(4) + (exp.ci_low == null ? '' : ' [' + exp.ci_low.toFixed(4) + ', ' + exp.ci_high.toFixed(4) + ']')"></td>
+                            <td class="px-6 py-4 text-sm font-mono text-slate-300" x-text="exp.latency_p50_ms == null ? '-' : exp.latency_p50_ms.toFixed(2) + ' ms'"></td>
                             <td class="px-6 py-4 text-right">
                                 <span class="px-2 py-1 text-xs rounded border font-medium" :class="getStatusBadgeClasses(exp.status)" x-text="exp.status"></span>
                             </td>
@@ -65,7 +65,7 @@
                     </template>
                     <tr x-show="experiments.length === 0">
                         <td colspan="6" class="px-6 py-12 text-center text-slate-500 text-sm">
-                            No experiments tracked in all_models_summary.csv yet. Execute pipeline runs to generate records.
+                            No results yet. Run python -m tweet_sentiment_classifier.evaluation.run to create artifacts/evaluation/results.csv.
                         </td>
                     </tr>
                 </tbody>
@@ -107,6 +107,7 @@ document.addEventListener('alpine:init', () => {
         getStatusDotColor(status) {
             if (status.includes('Serving')) return 'bg-emerald-500';
             if (status.includes('Best')) return 'bg-purple-500';
+            if (status.includes('Baseline')) return 'bg-amber-500';
             return 'bg-slate-500';
         },
 

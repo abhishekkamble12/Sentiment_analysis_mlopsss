@@ -8,6 +8,7 @@ run_id, one results table. Models are fit here from scratch (nothing is loaded f
 """
 import argparse
 import datetime as dt
+import itertools
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
@@ -16,7 +17,7 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from tweet_sentiment_classifier.evaluation.metrics import (
-    bootstrap_ci, evaluate, fingerprint, measure_latency, save_run,
+    bootstrap_ci, evaluate, fingerprint, holm_adjust, mcnemar_exact, measure_latency, paired_bootstrap, save_run,
 )
 from tweet_sentiment_classifier.models.factory import build_classifier
 from tweet_sentiment_classifier.models.lexicon import MajorityClassifier, TextBlobClassifier, VaderClassifier
@@ -51,14 +52,32 @@ class TfidfModel:
         return int(self.predict([text])[0])
 
 
-def _evaluate_model(model, name: str, texts: Sequence[str], y_true: np.ndarray, seed: int, n_boot: int) -> Dict[str, Any]:
+def _evaluate_model(model, name: str, texts: Sequence[str], y_true: np.ndarray, seed: int, n_boot: int):
     proba = model.predict_proba(texts) if hasattr(model, "predict_proba") else None
     pred = model.predict(texts)
     result = evaluate(y_true, pred, proba=proba)
     result["macro_f1_ci"] = bootstrap_ci(y_true, pred, "macro_f1", n_boot=n_boot, seed=seed)
     if hasattr(model, "predict_one"):
         result["latency"] = measure_latency(model.predict_one, texts)
-    return result
+    return result, pred
+
+
+def compare_models(y_true: np.ndarray, preds: Dict[str, np.ndarray], seed: int, n_boot: int) -> List[Dict[str, Any]]:
+    """Every pair of models: macro-F1 difference (A - B) with a paired-bootstrap CI, and exact McNemar.
+
+    p-values are Holm-adjusted across all pairs. Majority is excluded (it is a floor, not a competitor).
+    """
+    rows = []
+    for a, b in itertools.combinations([m for m in preds if m != "Majority"], 2):
+        boot = paired_bootstrap(y_true, preds[a], preds[b], "macro_f1", n_boot=n_boot, seed=seed)
+        mc = mcnemar_exact(y_true, preds[a], preds[b])
+        rows.append({"model_a": a, "model_b": b, "macro_f1_diff": boot["diff"], "ci_low": boot["ci"][0],
+                     "ci_high": boot["ci"][1], "p_bootstrap": boot["p_value"], "mcnemar_p": mc["p_value"],
+                     "only_a_correct": mc["only_a_correct"], "only_b_correct": mc["only_b_correct"]})
+    for key in ("p_bootstrap", "mcnemar_p"):
+        for row, adj in zip(rows, holm_adjust([r[key] for r in rows])):
+            row[key + "_holm"] = adj
+    return rows
 
 
 def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = DEFAULT_MODELS,
@@ -75,6 +94,7 @@ def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = 
     run_id = dt.datetime.now().strftime("%Y%m%d-%H%M%S") + f"-{split_hash[:6]}"
 
     results: Dict[str, Dict[str, Any]] = {}
+    preds: Dict[str, np.ndarray] = {}
     for name in models:
         if name == "Majority":
             model = MajorityClassifier().fit(x_train, y_train)
@@ -84,7 +104,8 @@ def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = 
             model = VaderClassifier()
         else:
             model = TfidfModel(name, params.get(name, {}), seed, max_features).fit(x_train, y_train)
-        results[name] = _evaluate_model(model, name, x_test, y_test, seed, n_boot)
+        results[name], preds[name] = _evaluate_model(model, name, x_test, y_test, seed, n_boot)
+    comparisons = compare_models(y_test, preds, seed, n_boot)
 
     split_info = {
         "train_csv": str(train_csv), "test_csv": str(test_csv), "n_train": len(x_train), "n_test": len(x_test),
@@ -94,8 +115,8 @@ def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = 
         "test_texts_also_in_train": overlap,
         "test_texts_also_in_train_pct": round(100 * overlap / max(len(x_test), 1), 2),
     }
-    save_run(out_dir, run_id, split_info, results)
-    return {"run_id": run_id, "split": split_info, "results": results}
+    save_run(out_dir, run_id, split_info, results, comparisons)
+    return {"run_id": run_id, "split": split_info, "results": results, "comparisons": comparisons}
 
 
 def _format(summary: Dict[str, Any]) -> str:
@@ -108,6 +129,12 @@ def _format(summary: Dict[str, Any]) -> str:
         p50 = f"{r['latency']['p50_ms']:.2f}" if "latency" in r else "-"
         lines.append(f"{name:<20}{r['accuracy']:>8.4f}{r['macro_f1']:>9.4f}{f'[{lo:.4f}, {hi:.4f}]':>18}"
                      f"{r['kappa']:>8.3f}{ece:>7}{p50:>9}")
+    if summary.get("comparisons"):
+        lines.append("\npairwise macro-F1 (A - B), paired bootstrap 95% CI, Holm-adjusted p:")
+        for c in summary["comparisons"]:
+            lines.append(f"  {c['model_a']} vs {c['model_b']}: diff {c['macro_f1_diff']:+.4f} "
+                         f"[{c['ci_low']:+.4f}, {c['ci_high']:+.4f}]  Holm p={c['p_bootstrap_holm']:.4f}  "
+                         f"McNemar Holm p={c['mcnemar_p_holm']:.4g}")
     return "\n".join(lines)
 
 

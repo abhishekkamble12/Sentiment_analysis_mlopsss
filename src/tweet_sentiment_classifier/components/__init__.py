@@ -7,7 +7,6 @@ _EXPORTS = {
     "DataValidation": "data_validation",
     "DataTransformation": "data_transformation",
     "ModelTrainer": "model_trainer",
-    "ModelEvaluation": "model_evaluation",
     "BestModelSelector": "best_model_selector",
 }
 

@@ -224,3 +224,6 @@ monitoring.db
 # Generated, deterministic splits: verify against artifacts/data_transformation/split_manifest.json
 artifacts/data_transformation/*.csv
 artifacts/data_validation/validated.csv
+
+# local virtual environments
+.venv-*/

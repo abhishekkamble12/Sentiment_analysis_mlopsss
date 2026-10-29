@@ -1,4 +1,4 @@
-import os
+import json
 import shutil
 import pandas as pd
 from pathlib import Path
@@ -6,57 +6,53 @@ from tweet_sentiment_classifier import logger
 from tweet_sentiment_classifier.config.config_entity import BestModelConfig
 from tweet_sentiment_classifier.utils.common import save_json
 
+# Training-free baselines are reference points, never candidates. TextBlob in particular generated the
+# silver labels, so on silver data it would always "win".
+BASELINES = {"Majority", "TextBlob", "VADER"}
+RESULTS_CSV = Path("artifacts/evaluation/results.csv")
+MODEL_DIR = Path("artifacts/model_trainer")
+
+
 class BestModelSelector:
-    def __init__(self, config: BestModelConfig):
+    def __init__(self, config: BestModelConfig, results_csv: Path = RESULTS_CSV, model_dir: Path = MODEL_DIR):
         self.config = config
+        self.results_csv = Path(results_csv)
+        self.model_dir = Path(model_dir)
 
-    def select_best_model(self):
-        try:
-            summary_path = Path(self.config.metrics_dir) / "all_models_summary.csv"
-            if not summary_path.exists():
-                logger.error(f"Summary file not found at {summary_path}")
-                return False
+    def select_best_model(self) -> str:
+        """Pick the trained model with the best test macro-F1 (ties: lower latency) from one evaluation run."""
+        if not self.results_csv.exists():
+            raise FileNotFoundError(f"{self.results_csv} not found; run tweet_sentiment_classifier.evaluation.run first")
 
-            logger.info("Selecting best model based on macro_f1 > weighted_f1 > latency > accuracy")
-            df = pd.read_csv(summary_path)
+        df = pd.read_csv(self.results_csv)
+        candidates = df[~df["model"].isin(BASELINES)].copy()
+        if candidates.empty:
+            raise ValueError(f"{self.results_csv} has no trained models, only baselines")
+        candidates["latency_p50_ms"] = candidates["latency_p50_ms"].fillna(float("inf"))
+        best_row = candidates.sort_values(["macro_f1", "latency_p50_ms"], ascending=[False, True]).iloc[0]
+        best = str(best_row["model"])
+        logger.info(f"Best trained model by macro-F1: {best} ({best_row['macro_f1']:.4f})")
 
-            # Sort by priority
-            # Ascending for latency (lower is better), descending for metrics
-            df_sorted = df.sort_values(
-                by=['F1 Score (Macro)', 'F1 Score (Weighted)', 'Latency', 'Accuracy'],
-                ascending=[False, False, True, False]
-            )
+        src = self.model_dir / f"model_{best}.pkl"
+        dest = Path(self.config.model_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.exists():
+            shutil.copy2(src, dest)
+        else:
+            logger.warning(f"{src} not found; metadata written without copying the model")
 
-            best_model_name = df_sorted.iloc[0]['Model Name']
-            logger.info(f"Best model selected: {best_model_name}")
+        run_id = None
+        results_json = self.results_csv.with_suffix(".json")
+        if results_json.exists():
+            run_id = json.loads(results_json.read_text(encoding="utf-8")).get("run_id")
 
-            # Persist best model artifact
-            if best_model_name == "DistilBERT":
-                best_model_src = Path("artifacts/model_trainer") / f"model_{best_model_name}"
-            else:
-                best_model_src = Path("artifacts/model_trainer") / f"model_{best_model_name}.pkl"
-            
-            dest_dir = Path(self.config.model_path).parent
-            if best_model_src.is_dir():
-                dest_path = dest_dir / f"best_model_{best_model_name}"
-                if dest_path.exists():
-                    shutil.rmtree(dest_path)
-                shutil.copytree(best_model_src, dest_path)
-            else:
-                dest_path = self.config.model_path
-                shutil.copy2(best_model_src, dest_path)
-            
-            # Persist metadata
-            metadata = {
-                "best_model_name": best_model_name,
-                "metrics": df_sorted.iloc[0].to_dict(),
-                "tier_1_fast_fallback": df_sorted[df_sorted['Model Name'] != "DistilBERT"].iloc[0]['Model Name']
-            }
-            save_json(path=Path(self.config.metadata_path), data=metadata)
-            logger.info(f"Persisted best model and metadata to {dest_dir}")
-            
-            return True
-
-        except Exception as e:
-            logger.exception(f"Error selecting best model: {e}")
-            raise e
+        metadata = {
+            "best_model_name": best,
+            "tier_1_fast_fallback": best,  # read by PredictionPipeline: the model it serves
+            "metrics": {k: (None if pd.isna(v) else v) for k, v in best_row.to_dict().items()},
+            "selected_from": str(self.results_csv),
+            "run_id": run_id,
+            "excluded_baselines": sorted(BASELINES),
+        }
+        save_json(path=Path(self.config.metadata_path), data=metadata)
+        return best
