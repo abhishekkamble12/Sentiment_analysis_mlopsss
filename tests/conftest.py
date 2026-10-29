@@ -56,6 +56,7 @@ def make_pipeline():
         p.llm_calls = 0
 
         if distilbert is not None:  # (label, confidence) or an Exception to raise
+            p.db_model = object()  # marks the tier as loaded
             def _db(_text):
                 if isinstance(distilbert, Exception):
                     raise distilbert

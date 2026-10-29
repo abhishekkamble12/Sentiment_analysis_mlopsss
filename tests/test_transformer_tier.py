@@ -82,6 +82,13 @@ def test_disabled_tier_is_reported_as_failure_not_a_neutral_vote(make_pipeline, 
         p._predict_distilbert("hello")
 
 
+def test_disabled_tier_is_skipped_without_a_failure_warning(make_pipeline):
+    import asyncio
+    from conftest import StubProbaModel
+    res = asyncio.run(make_pipeline("local", fast_model=StubProbaModel([0.1, 0.1, 0.8])).predict("great"))
+    assert res["warnings"] == [] and list(res["votes"]) == ["local:logisticregression"]
+
+
 @pytest.mark.parametrize("cfg,expected", [
     ({"id2label": {"0": "a", "1": "b", "2": "c"}}, 3),
     ({"id2label": {"0": "a", "1": "b"}}, 2),

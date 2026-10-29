@@ -182,6 +182,8 @@ class PredictionPipeline:
         except Exception as e:
             out["errors"]["fast"] = str(e)
             logger.warning(f"Fast model {self.fast_model_name} failed: {e}")
+        if self.db_model is None:  # tier disabled (no 3-label checkpoint): not a failure, so no warning
+            return out
         try:
             out["distilbert"] = self._predict_distilbert(cleaned_text)
         except Exception as e:
