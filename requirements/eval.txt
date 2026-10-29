@@ -1,0 +1,5 @@
+-r base.txt
+# Lexicon baselines (TextBlob, VADER) for tweet_sentiment_classifier.evaluation.run.
+# Not needed for serving or training.
+textblob==0.20.1
+vaderSentiment==3.3.2

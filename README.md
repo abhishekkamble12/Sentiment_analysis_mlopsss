@@ -39,6 +39,7 @@ Python 3.12. Dependencies are split by purpose in `requirements/`:
 | `api.txt` | web app (no ML frameworks) |
 | `serve.txt` | production serving: adds PyTorch, transformers, LangChain, Postgres driver |
 | `train.txt` | the training pipeline (TensorFlow, MLflow, XGBoost). Install in a **separate** environment from `serve.txt` |
+| `eval.txt` | lexicon baselines (TextBlob, VADER) for the evaluation runner |
 | `dev.txt` | tests and lint |
 
 ```bash
@@ -75,6 +76,21 @@ docker compose up --build
 ```
 
 The database listens on `127.0.0.1:5432` only. The image installs the CPU-only PyTorch build.
+
+## Evaluation
+
+One command scores every model on one test set, so all numbers share a run id, a test-set fingerprint and
+a seed (models are fit from scratch; nothing is read from old pickles):
+
+```bash
+pip install -r requirements/base.txt -r requirements/eval.txt
+python -m tweet_sentiment_classifier.evaluation.run     --train artifacts/data_transformation/train.csv --test artifacts/data_transformation/test.csv     --out artifacts/evaluation
+```
+
+It writes `results.csv` / `results.json` (rebuilt from scratch each run) with accuracy, macro-F1 with a
+95% bootstrap CI, Cohen's kappa, expected calibration error, per-class F1 and per-text latency, and reports
+how many test texts also occur in the training file. Baselines: majority class, TextBlob, VADER.
+**Read TextBlob's score as a check on the labels, not as a competitor**: it generated them.
 
 ## Tests
 

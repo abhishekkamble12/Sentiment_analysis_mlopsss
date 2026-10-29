@@ -3,12 +3,10 @@ import joblib
 import pandas as pd
 from pathlib import Path
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression, RidgeClassifier
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.svm import LinearSVC
-from sklearn.naive_bayes import MultinomialNB
 from tweet_sentiment_classifier import logger
 from tweet_sentiment_classifier.config.config_entity import ModelTrainerConfig
+from tweet_sentiment_classifier.models.factory import build_classifier
+
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
         self.config = config
@@ -37,47 +35,9 @@ class ModelTrainer:
                 # y_train for XGBoost needs to be 0, 1, 2
                 y_train_mapped = (y_train + 1).astype(int).values
 
-                if model_name == "LogisticRegression":
-                    classifier = LogisticRegression(
-                        C=hyperparams.get("C", 1.0),
-                        solver=hyperparams.get("solver", "lbfgs"),
-                        max_iter=hyperparams.get("max_iter", 100),
-                        random_state=random_state,
-                        n_jobs=-1
-                    )
-                elif model_name == "LinearSVC":
-                    # Calibrated so the served model exposes real probabilities (predict_proba)
-                    classifier = CalibratedClassifierCV(
-                        LinearSVC(
-                            C=hyperparams.get("C", 1.0),
-                            loss=hyperparams.get("loss", "squared_hinge"),
-                            max_iter=hyperparams.get("max_iter", 1000),
-                            random_state=random_state
-                        ),
-                        cv=3,
-                    )
-                elif model_name == "MultinomialNB":
-                    classifier = MultinomialNB(alpha=hyperparams.get("alpha", 0.1))
-                elif model_name == "RidgeClassifier":
-                    classifier = CalibratedClassifierCV(
-                        RidgeClassifier(
-                            alpha=hyperparams.get("alpha", 1.0),
-                            random_state=random_state
-                        ),
-                        cv=3,
-                    )
-                elif model_name == "XGBoost":
-                    from xgboost import XGBClassifier
-                    classifier = XGBClassifier(
-                        n_estimators=hyperparams.get("n_estimators", 80),
-                        max_depth=hyperparams.get("max_depth", 5),
-                        learning_rate=hyperparams.get("learning_rate", 0.15),
-                        random_state=random_state,
-                        n_jobs=-1,
-                        eval_metric='mlogloss'
-                    )
-                    # XGBoost natively maps labels
-                    y_train = y_train_mapped
+                classifier = build_classifier(model_name, hyperparams, random_state)
+                if model_name == "XGBoost":
+                    y_train = y_train_mapped  # XGBoost expects labels 0..2
 
                 logger.info(f"Training {model_name}...")
                 classifier.fit(X_train_vectorized, y_train)
