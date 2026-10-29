@@ -66,3 +66,4 @@ def test_form_submission_with_llm_null_confidence(env, app_module, monkeypatch):
         log = db.query(PredictionLog).one()
         assert log.confidence is None
         assert log.prediction == "negative"
+
