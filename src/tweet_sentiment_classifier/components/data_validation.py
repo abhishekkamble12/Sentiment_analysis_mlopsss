@@ -12,6 +12,9 @@ class DataValidation:
             validation_status = True
             logger.info("Starting Data Validation...")
 
+            # A failed run must not leave a previous run's output for the next stage to pick up
+            Path(self.config.validated_data_path).unlink(missing_ok=True)
+
             if not Path(self.config.unzip_data_dir).exists():
                 logger.error(f"Data file not found at {self.config.unzip_data_dir}")
                 self._write_status("Validation Failed: Data file not found")
@@ -64,8 +67,9 @@ class DataValidation:
                 msg = "Validation Passed Successfully"
                 logger.info(msg)
                 self._write_status(msg)
-                # Overwrite data with cleaned version
-                df.to_csv(self.config.unzip_data_dir, index=False)
+                # Write the cleaned data to its own file; the ingested input is never modified
+                Path(self.config.validated_data_path).parent.mkdir(parents=True, exist_ok=True)
+                df.to_csv(self.config.validated_data_path, index=False)
 
             return validation_status
 

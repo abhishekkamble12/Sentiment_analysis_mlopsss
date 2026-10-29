@@ -7,7 +7,7 @@ logs_dir: artifacts/logs
 
 data_ingestion:
   root_dir: artifacts/data_ingestion
-  source_URL: Kidney_diesease-classificiation/dataset/thoroughly_cleaned_data.csv
+  source_URL: sentiment_analysis/dataset/thoroughly_cleaned_data.csv
   local_data_file: dataset.csv
   unzip_dir: artifacts/data_ingestion 
   source_type: url 
@@ -16,10 +16,11 @@ data_validation:
   root_dir: artifacts/data_validation
   unzip_data_dir: artifacts/data_ingestion/dataset.csv
   STATUS_FILE: artifacts/data_validation/status.txt
+  validated_data_file: artifacts/data_validation/validated.csv
 
 data_transformation:
   root_dir: artifacts/data_transformation
-  data_path: artifacts/data_ingestion/dataset.csv
+  data_path: artifacts/data_validation/validated.csv
   train_data_path: artifacts/data_transformation/train.csv
   test_data_path: artifacts/data_transformation/test.csv
   preprocessed_object_file: artifacts/data_transformation/preprocessor.pkl
