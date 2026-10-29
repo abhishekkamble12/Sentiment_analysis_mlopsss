@@ -52,6 +52,20 @@ def load_serving_pipeline():
         except Exception:
             pass
 
+    # Fallback to model_trainer directory if best_model.pkl is missing
+    if not model_path.exists():
+        best_name = metadata.get("best_model_name", "LinearSVC")
+        candidates = [
+            Path(f"artifacts/model_trainer/model_{best_name}.pkl"),
+            Path("artifacts/model_trainer/model.pkl"),
+            Path("artifacts/model_trainer/model_LinearSVC.pkl"),
+            Path("artifacts/model_trainer/model_LogisticRegression.pkl"),
+        ]
+        for cand in candidates:
+            if cand.exists():
+                model_path = cand
+                break
+
     if not vec_path.exists() or not model_path.exists():
         return None, None, metadata
 
@@ -248,3 +262,4 @@ with tab4:
         st.bar_chart(chart_data)
     else:
         st.info("Evaluation results not found in `artifacts/evaluation/results.csv`.")
+

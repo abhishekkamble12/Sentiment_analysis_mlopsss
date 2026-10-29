@@ -232,4 +232,3 @@ artifacts/data_validation/validated.csv
 data/gold/
 artifacts/evaluation/predictions.csv
 artifacts/evaluation/**/predictions.csv
-artifacts/best_model/*.pkl
