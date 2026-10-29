@@ -104,6 +104,9 @@ def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = 
             model = TextBlobClassifier()
         elif name == "VADER":
             model = VaderClassifier()
+        elif name.startswith("transformer:"):  # a fine-tuned checkpoint directory from models/finetune.py
+            from tweet_sentiment_classifier.models.finetune import TransformerModel
+            model = TransformerModel(name.split(":", 1)[1])
         else:
             model = TfidfModel(name, params.get(name, {}), seed, max_features).fit(x_train, y_train)
         results[name], preds[name] = _evaluate_model(model, name, x_test, y_test, seed, n_boot, weights)
@@ -121,6 +124,9 @@ def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = 
         "test_texts_also_in_train_pct": round(100 * overlap / max(len(x_test), 1), 2),
     }
     save_run(out_dir, run_id, split_info, results, comparisons)
+    # per-row predictions for error analysis (contains tweet text: gitignored, not for redistribution)
+    pd.DataFrame({"text": x_test, "label": y_test, **{f"pred_{m}": p for m, p in preds.items()}}).to_csv(
+        Path(out_dir) / "predictions.csv", index=False)
     return {"run_id": run_id, "split": split_info, "results": results, "comparisons": comparisons}
 
 

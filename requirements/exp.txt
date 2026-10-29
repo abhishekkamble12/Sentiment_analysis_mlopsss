@@ -1,0 +1,5 @@
+-r eval.txt
+# Experiments (confident learning, out-of-domain data, figures). Fine-tuning also needs serve.txt (torch).
+cleanlab==2.9.0
+datasets==5.1.0
+matplotlib==3.11.2

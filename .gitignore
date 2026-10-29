@@ -230,3 +230,5 @@ artifacts/data_validation/validated.csv
 
 # Gold annotation data (contains tweet text; see docs/annotation_guidelines.md)
 data/gold/
+artifacts/evaluation/predictions.csv
+artifacts/evaluation/**/predictions.csv
