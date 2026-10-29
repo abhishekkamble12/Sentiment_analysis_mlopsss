@@ -11,7 +11,11 @@ quoting any number from this repository.
   with its labels on 99.98% of a 20,000-row random sample. Every accuracy / F1 in `artifacts/` therefore
   measures how well a model imitates that lexicon, **not** how well it detects human-perceived sentiment.
   A human-labelled evaluation set is planned.
-- `artifacts/model_evaluation/` mixes results from different runs and splits and is being regenerated.
+- Use `artifacts/evaluation/results.csv` (one run, one leak-free split, with confidence intervals; see
+  *Evaluation*). The older `artifacts/model_evaluation/` files mix results from different runs and splits
+  and are superseded. The deployed `artifacts/model_trainer/*.pkl` models were trained on the older, leaky split.
+- The train/val/test CSVs are generated, not committed: `python main.py` recreates them deterministically, and
+  `artifacts/data_transformation/split_manifest.json` holds their sizes, label counts and fingerprints to verify them.
 - The transformer tier is disabled until a fine-tuned 3-class checkpoint exists (see below).
 
 ## How a prediction is made

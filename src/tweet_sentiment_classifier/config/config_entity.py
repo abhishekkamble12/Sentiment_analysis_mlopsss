@@ -27,6 +27,9 @@ class DataTransformationConfig:
     preprocessed_object_file: Path
     test_size: float
     random_state: int
+    val_data_path: Path
+    manifest_path: Path
+    val_size: float
 
 @dataclass(frozen=True)
 class ModelTrainerConfig:

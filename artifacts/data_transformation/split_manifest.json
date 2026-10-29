@@ -1,0 +1,48 @@
+{
+  "source": "artifacts/data_validation/validated.csv",
+  "seed": 42,
+  "test_size": 0.2,
+  "val_size": 0.1,
+  "rows": {
+    "raw": 162968,
+    "empty_after_cleaning_dropped": 3,
+    "conflicting_label_rows_dropped": 14,
+    "duplicates_dropped": 3368,
+    "final": 159583
+  },
+  "splits": {
+    "train": {
+      "n": 111707,
+      "label_counts": {
+        "-1": 24442,
+        "0": 37572,
+        "1": 49693
+      },
+      "fingerprint": "22be6bfe981d7d47"
+    },
+    "val": {
+      "n": 15959,
+      "label_counts": {
+        "-1": 3492,
+        "0": 5368,
+        "1": 7099
+      },
+      "fingerprint": "5d13075e7ea8d350"
+    },
+    "test": {
+      "n": 31917,
+      "label_counts": {
+        "-1": 6984,
+        "0": 10735,
+        "1": 14198
+      },
+      "fingerprint": "f1df771fdbf437c6"
+    }
+  },
+  "exact_text_overlap": {
+    "train_val": 0,
+    "train_test": 0,
+    "val_test": 0
+  },
+  "test_near_duplicates_of_train": 34
+}

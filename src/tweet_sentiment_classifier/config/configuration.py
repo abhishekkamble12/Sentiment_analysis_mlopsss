@@ -55,7 +55,10 @@ class ConfigurationManager:
             test_data_path=config.test_data_path,
             preprocessed_object_file=config.preprocessed_object_file,
             test_size=config.test_size,
-            random_state=config.random_state
+            random_state=config.random_state,
+            val_data_path=config.val_data_path,
+            manifest_path=config.manifest_path,
+            val_size=config.val_size,
         )
 
     def get_model_trainer_config(self, model_name: str) -> ModelTrainerConfig:

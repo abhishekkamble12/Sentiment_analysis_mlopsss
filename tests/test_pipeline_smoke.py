@@ -83,9 +83,12 @@ def test_pipeline_runs_from_a_clean_directory(workdir):
     # --- transform reads the validated file and produces disjoint train/test
     DataTransformation(cm.get_data_transformation_config()).transform_and_split()
     train = pd.read_csv(cm.config.data_transformation.train_data_path)
+    val = pd.read_csv(cm.config.data_transformation.val_data_path)
     test = pd.read_csv(cm.config.data_transformation.test_data_path)
-    assert len(train) + len(test) == n_good
+    assert len(train) + len(val) + len(test) == n_good
     assert not set(train["text"]) & set(test["text"])
+    assert not set(train["text"]) & set(val["text"]) and not set(val["text"]) & set(test["text"])
+    assert Path(cm.config.data_transformation.manifest_path).is_file()
 
     # --- train a model that the serving code can use
     trainer_cfg = cm.get_model_trainer_config("LogisticRegression")
