@@ -4,13 +4,16 @@ from tweet_sentiment_classifier.config.database import Base
 
 class PredictionLog(Base):
     __tablename__ = "prediction_logs"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     latency_ms = Column(Float, nullable=False)
     confidence = Column(Float, nullable=True)  # NULL when the decider (an LLM) reports no confidence
     model_used = Column(String, nullable=False)
     prediction = Column(String, nullable=False)
     text_length = Column(Integer, nullable=False)
+    # The analysed text, so the Prediction History page can show it. Nullable so rows written by
+    # older versions (and the anonymous monitoring flow) keep working; bounded to MAX_TEXT_CHARS.
+    text = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 class ReportLog(Base):

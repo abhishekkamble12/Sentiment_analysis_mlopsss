@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+}
+
+/* Reusable glass surface used across pages, matching the existing Jinja design language */
+@layer components {
+  .glass-card {
+    @apply bg-slate-900/60 border border-slate-800 rounded-2xl backdrop-blur-sm;
+  }
+  .input-base {
+    @apply w-full bg-slate-900/70 border border-slate-700 rounded-xl px-4 py-3 text-slate-100
+      placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1
+      focus:ring-indigo-500 transition-all;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold
+      text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500
+      hover:to-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-medium
+      text-slate-300 bg-slate-800/70 border border-slate-700 hover:bg-slate-700/70 transition-all;
+  }
+}
+
+/* Slim, dark scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}

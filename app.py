@@ -3,11 +3,13 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import asyncio
 import io
 import json
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 import uvicorn
 import logging
@@ -34,6 +36,19 @@ settings = get_settings()
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Tweet Sentiment Classification API", version="2.0")
+
+# --- CORS (local development: the React dev server runs on a different port) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5174", "http://127.0.0.1:5174",
+        "http://localhost:8000", "http://127.0.0.1:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- UI Setup ---
 templates = Jinja2Templates(directory="templates")
@@ -113,7 +128,12 @@ class FormSubmissionRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
 
-def _log_prediction(db: Session, result: Dict[str, Any], latency_ms: float, text_length: int) -> None:
+
+class PredictRequest(BaseModel):
+    text: str
+
+def _log_prediction(db: Session, result: Dict[str, Any], latency_ms: float, text_length: int,
+                    text: str | None = None) -> None:
     """Stage a PredictionLog row. confidence stays None when the decider reports none (LLM)."""
     db.add(PredictionLog(
         latency_ms=latency_ms,
@@ -121,6 +141,7 @@ def _log_prediction(db: Session, result: Dict[str, Any], latency_ms: float, text
         model_used=result.get("decision_source") or result.get("model_used", "unknown"),
         prediction=result.get("prediction", "unknown"),
         text_length=text_length,
+        text=(text[:settings.MAX_TEXT_CHARS] if text else None),
     ))
 
 # --- Endpoints ---
@@ -132,16 +153,16 @@ async def health_check():
 MIN_SEARCH_RESULTS = 3
 
 
-@app.post("/predict")
-async def predict_sentiment(text: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+async def _predict_and_log(text: str, db: Session) -> Dict[str, Any]:
+    """Shared prediction path for the query-param and JSON endpoints: validate, predict, persist, cache."""
     if not pipeline:
         raise HTTPException(status_code=500, detail="Pipeline not initialized (models missing).")
-    if not text or not text.strip():
+    text = (text or "").strip()
+    if not text:
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
-
-    text = text.strip()
     if len(text) > settings.MAX_TEXT_CHARS:
         raise HTTPException(status_code=413, detail=f"Text is too long (max {settings.MAX_TEXT_CHARS} characters).")
+
     if text in predict_cache:
         logger.info("Cache hit for /predict")
         return predict_cache[text]
@@ -151,7 +172,7 @@ async def predict_sentiment(text: str, db: Session = Depends(get_db)) -> Dict[st
     latency_ms = (time.time() - start_time) * 1000
 
     try:
-        _log_prediction(db, result, latency_ms, len(text))
+        _log_prediction(db, result, latency_ms, len(text), text=text)
         await run_in_threadpool(db.commit)
     except Exception as e:
         logger.warning(f"Failed to save prediction log: {e}")
@@ -164,8 +185,23 @@ async def predict_sentiment(text: str, db: Session = Depends(get_db)) -> Dict[st
     return result
 
 
-@app.post("/upload_csv")
-async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+@app.post("/predict")
+async def predict_sentiment(text: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    return await _predict_and_log(text, db)
+
+
+@app.post("/api/predict")
+async def api_predict(req: PredictRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """JSON prediction for the React app: same contract as /predict but with a request body."""
+    return await _predict_and_log(req.text, db)
+
+
+async def _process_csv(file: UploadFile, db: Session) -> Dict[str, Any]:
+    """Validate a CSV upload, predict per row and stage PredictionLog rows (caller commits).
+
+    Returns {results, total_processed, distribution, errors}. distribution/errors are real counts
+    derived from the predictions; nothing is invented.
+    """
     if not pipeline:
         raise HTTPException(status_code=500, detail="Pipeline not initialized.")
     if not (file.filename or "").lower().endswith(".csv"):
@@ -189,30 +225,52 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         raise HTTPException(status_code=413, detail=f"CSV has {len(df)} rows; the limit is {max_rows} in '{mode}' mode.")
 
     results = []
+    errors: list[Dict[str, str]] = []
+    distribution = {"positive": 0, "neutral": 0, "negative": 0}
     for text in df['text'].dropna().astype(str):  # blank cells are skipped, not classified as "nan"
         text = text.strip()[:settings.MAX_TEXT_CHARS]
         if not text:
             continue
 
-        start_time = time.time()
-        res = await pipeline.predict(text)
-        latency_ms = (time.time() - start_time) * 1000
+        try:
+            start_time = time.time()
+            res = await pipeline.predict(text)
+            latency_ms = (time.time() - start_time) * 1000
+        except Exception as e:
+            logger.warning(f"CSV row failed: {e}")
+            errors.append({"text": text, "error": "prediction failed"})
+            continue
 
-        _log_prediction(db, res, latency_ms, len(text))
-
+        _log_prediction(db, res, latency_ms, len(text), text=text)
+        pred = res["prediction"]
+        distribution[pred] = distribution.get(pred, 0) + 1
         results.append({
             "text": text,
-            "prediction": res["prediction"],
-            "confidence": res["confidence"],
+            "prediction": pred,
+            "confidence": res.get("confidence"),
             "model_used": res.get("decision_source", "unknown")
         })
 
+    return {"results": results, "total_processed": len(results), "distribution": distribution, "errors": errors}
+
+
+@app.post("/upload_csv")
+async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    processed = await _process_csv(file, db)
     await run_in_threadpool(db.commit)
 
     # Limit the report to the first 50 rows to bound prompt size; the blocking LLM call runs in a thread
-    report = await asyncio.to_thread(report_agent.generate_report, "Bulk CSV Upload", results[:50]) if report_agent else None
+    report = await asyncio.to_thread(report_agent.generate_report, "Bulk CSV Upload", processed["results"][:50]) if report_agent else None
 
-    return JSONResponse(content={"results": results, "total_processed": len(results), "report": report})
+    return JSONResponse(content={"results": processed["results"], "total_processed": processed["total_processed"], "report": report})
+
+
+@app.post("/api/upload-csv")
+async def api_upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Batch CSV analysis for the React app: returns per-row results, a sentiment distribution and row errors."""
+    processed = await _process_csv(file, db)
+    await run_in_threadpool(db.commit)
+    return JSONResponse(content=processed)
 
 
 @app.post("/api/form-submission")
@@ -230,7 +288,7 @@ async def handle_form_submission(form_req: FormSubmissionRequest, db: Session = 
     latency_ms = (time.time() - start_time) * 1000
 
     try:
-        _log_prediction(db, res, latency_ms, len(text))
+        _log_prediction(db, res, latency_ms, len(text), text=text)
         await run_in_threadpool(db.commit)
     except Exception as e:
         logger.warning(f"Failed to save prediction log from form submission: {e}")
@@ -285,7 +343,7 @@ async def search_analysis(request: SearchRequest, db: Session = Depends(get_db))
         res = await pipeline.predict(text)
         latency_ms = (time.time() - start_time) * 1000
 
-        _log_prediction(db, res, latency_ms, len(text))
+        _log_prediction(db, res, latency_ms, len(text), text=text)
 
         predictions.append({
             "text": text,
@@ -389,6 +447,69 @@ def get_recent_logs(limit: int = 10, db: Session = Depends(get_db)):
         }
         for r in rows
     ]}
+
+
+def _aliases_for(label: str) -> list[str]:
+    """Stored values that normalise to one sentiment (newer rows use names, older rows use numbers)."""
+    aliases = [label]
+    for stored, normalized in LABEL_ALIASES.items():
+        if normalized == label:
+            aliases.append(stored)
+    return aliases
+
+
+@app.get("/api/prediction-history")
+def get_prediction_history(
+        q: str | None = None,
+        sentiment: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+        db: Session = Depends(get_db)):
+    """Persisted predictions, searchable and filterable. Older rows have NULL text."""
+    sentiment = (sentiment or "").strip().lower() or None
+    if sentiment and sentiment not in ("positive", "neutral", "negative"):
+        raise HTTPException(status_code=400, detail="sentiment must be positive, neutral or negative.")
+    page = max(1, page)
+    limit = max(1, min(limit, 100))
+
+    query = db.query(PredictionLog)
+    if q:
+        query = query.filter(PredictionLog.text.ilike(f"%{q.strip()}%"))
+    if sentiment:
+        query = query.filter(PredictionLog.prediction.in_(_aliases_for(sentiment)))
+    if start:
+        try:
+            query = query.filter(PredictionLog.timestamp >= datetime.fromisoformat(start))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start must be an ISO date (e.g. 2026-10-29).")
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(end)
+            # A date-only end is treated as inclusive of that whole day
+            if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
+                end_dt = end_dt + timedelta(days=1)
+            query = query.filter(PredictionLog.timestamp < end_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="end must be an ISO date (e.g. 2026-10-29).")
+
+    total = query.count()
+    rows = query.order_by(PredictionLog.id.desc()).offset((page - 1) * limit).limit(limit).all()
+    logs = [{
+        "id": r.id,
+        "timestamp": r.timestamp.isoformat() + "Z" if r.timestamp else None,
+        "text": r.text,
+        "prediction": _normalize_label(r.prediction),
+        "model_used": r.model_used,
+        "confidence": r.confidence,
+        "latency_ms": round(r.latency_ms, 1),
+        "text_length": r.text_length,
+        "llm": _is_llm(r.model_used),
+    } for r in rows]
+
+    return {"logs": logs, "total": total, "page": page, "limit": limit,
+            "total_pages": (total + limit - 1) // limit}
 
 
 @app.get("/api/analytics")
@@ -517,6 +638,23 @@ def get_experiments():
         return {"experiments": [], "error": str(e)}
 
 
+@app.get("/api/model-info")
+def get_model_info():
+    """What the API is actually serving: model name, inference mode, transformer status, label map."""
+    meta = _load_best_model_meta()
+    ready = pipeline is not None
+    return {
+        "pipeline_ready": ready,
+        "best_model_name": meta.get("best_model_name"),
+        "fast_model_name": meta.get("tier_1_fast_fallback", "LogisticRegression"),
+        "inference_mode": getattr(pipeline, "inference_mode", None) if ready else None,
+        "transformer_enabled": bool(getattr(pipeline, "db_model", None)) if ready else False,
+        "label_mapping": {"-1": "negative", "0": "neutral", "1": "positive"},
+        "best_metrics": meta.get("metrics"),
+        "run_id": meta.get("run_id"),
+    }
+
+
 RESULTS_DIR = Path("artifacts/evaluation")
 LABEL_WORDS = {-1: "negative", 0: "neutral", 1: "positive"}
 
@@ -545,6 +683,34 @@ def _run_summary(run):
     return {"run_id": run.get("run_id"), "n_test": split.get("n_test"), "label_source": split.get("label_source"),
             "overlap_pct": split.get("test_texts_also_in_train_pct"), "weights_column": split.get("weights_column"),
             "models": _model_table(run), "comparisons": run.get("comparisons", [])}
+
+
+def _lab_run(run):
+    """Full per-model detail for the Model Lab page: per-class F1, confusion matrix and latency.
+
+    Read straight from the evaluation artifacts; nothing is invented or rounded away.
+    """
+    if not run:
+        return None
+    split = run.get("split", {})
+    models = []
+    for name, r in run.get("results", {}).items():
+        ci = r.get("macro_f1_ci") or (None, None)
+        models.append({
+            "model": name,
+            "accuracy": r.get("accuracy"),
+            "macro_f1": r.get("macro_f1"),
+            "weighted_f1": r.get("weighted_f1"),
+            "kappa": r.get("kappa"),
+            "ece": r.get("ece"),
+            "ci_low": ci[0], "ci_high": ci[1],
+            "baseline": name in BASELINE_MODELS,
+            "per_class": r.get("per_class"),
+            "confusion_matrix": r.get("confusion_matrix"),
+            "latency": r.get("latency"),
+        })
+    return {"run_id": run.get("run_id"), "split": split, "models": models,
+            "comparisons": run.get("comparisons", [])}
 
 
 @app.get("/results", response_class=HTMLResponse)
@@ -581,8 +747,29 @@ def get_results():
     }
 
 
+@app.get("/api/model-lab")
+def get_model_lab():
+    """Real evaluation detail for the Model Lab page: per-class F1, confusion matrices, latency,
+    pairwise comparisons and the silver/gold split, read straight from the evaluation artifacts."""
+    return {
+        "silver": _lab_run(_read_json(RESULTS_DIR / "results.json")),
+        "gold": _lab_run(_read_json(RESULTS_DIR / "gold" / "results.json")),
+        "label_order": ["negative", "neutral", "positive"],
+        "best_model_name": _load_best_model_meta().get("best_model_name"),
+        "limitation": ("Silver metrics use TextBlob-generated labels, not human annotations: they measure how "
+                       "well a model imitates that lexicon, not human-perceived sentiment. Gold (human-labelled) "
+                       "results appear only once that set exists."),
+    }
+
+
 # Mount static files at the end to prevent route conflicts
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Serve the built React app at /app when it has been compiled (frontend/dist). The legacy Jinja
+# UI below / stays available; this only adds /app and its assets, so no existing route is shadowed.
+_FRONTEND_DIST = Path("frontend/dist")
+if _FRONTEND_DIST.exists():
+    app.mount("/app", StaticFiles(directory=str(_FRONTEND_DIST), html=True), name="frontend")
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="127.0.0.1", port=8000, workers=1, log_level="info")
