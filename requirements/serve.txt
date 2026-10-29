@@ -1,0 +1,14 @@
+-r api.txt
+# Production serving: PyTorch transformer tier, LLM clients, search agents, Postgres driver.
+# Direct dependencies are pinned to a mutually compatible set resolved with pip on Python 3.12;
+# their transitive dependencies are not locked.
+# Docker installs the CPU-only torch build (see Dockerfile).
+torch==2.15.0
+transformers==5.21.0
+langchain-core==1.7.1
+langchain-groq==1.1.3
+langchain-community==0.4.2
+ddgs==9.16.1
+feedparser==6.0.14
+requests==2.34.2
+psycopg2-binary==2.9.13

@@ -1,0 +1,5 @@
+-r api.txt
+# Test and lint tooling. This is what CI installs: no torch, TensorFlow, MLflow or LangChain.
+pytest==9.2.0
+httpx==0.28.1
+flake8==7.5.0

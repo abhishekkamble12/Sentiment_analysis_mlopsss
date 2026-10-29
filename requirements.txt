@@ -1,33 +1,4 @@
-tensorflow
-tf-keras
-pandas
-numpy
-joblib
-types-PyYAML
-scipy
-gdown
-fastapi
-uvicorn
-python-multipart
-ensure
-python-box
-scikit-learn
-python-dotenv
-transformers<5.0.0
-safetensors<0.5.0
-huggingface-hub
-xgboost
-langchain
-langchain-groq
-langchain-community
-duckduckgo-search
-feedparser
-praw
-sqlalchemy
-alembic
-psycopg2-binary
-pydantic-settings
-mlflow
-matplotlib
-seaborn
--e .
+# Default install = what the Docker image serves. See requirements/ for the other groups:
+#   base.txt (data/config/db)  api.txt (web app)  serve.txt (production)
+#   train.txt (training pipeline, separate environment)  dev.txt (tests + lint)
+-r requirements/serve.txt

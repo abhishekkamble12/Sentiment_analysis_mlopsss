@@ -1,63 +1,87 @@
-# AI-Native Sentiment Intelligence Platform
+# Tweet Sentiment Classification
 
-A production-grade, full-stack AI analytics platform designed to classify public feedback sentiments and run detailed LangChain-driven search and report analysis.
+Three-class (negative / neutral / positive) sentiment classification for tweets, with a training
+pipeline, a FastAPI service and a small web UI. Work in progress: see *Known limitations* before
+quoting any number from this repository.
 
-## Architecture
+## Known limitations
 
-This project provides a robust backend paired with an enterprise-grade, lightweight frontend. It uses a multi-tiered approach to ensure minimal latency, utilizing local ML models (LinearSVC, DistilBERT) in an ensemble setup to guarantee accurate predictions without relying on third-party cloud APIs.
+- **The dataset labels are not human annotations.** `sentiment_analysis/dataset/thoroughly_cleaned_data.csv`
+  (163k tweets, ~91% mention "modi") was labelled by a lexicon tool: TextBlob's `sign(polarity)` agrees
+  with its labels on 99.98% of a 20,000-row random sample. Every accuracy / F1 in `artifacts/` therefore
+  measures how well a model imitates that lexicon, **not** how well it detects human-perceived sentiment.
+  A human-labelled evaluation set is planned.
+- `artifacts/model_evaluation/` mixes results from different runs and splits and is being regenerated.
+- The transformer tier is disabled until a fine-tuned 3-class checkpoint exists (see below).
 
-### Frontend
-- **Tech Stack**: FastAPI Templates, Jinja2, Tailwind CSS, Alpine.js, Chart.js, ECharts, HTMX.
-- **Design Language**: Dark theme, glassmorphism, responsive, and highly interactive.
-- **Key Modules**:
-  - **Predict Dashboard**: Real-time sentiment prediction with ChatGPT-style explanations.
-  - **Search Analysis**: AI-powered dynamic search aggregation and sentiment analysis.
-  - **Bulk CSV Analysis**: Drag-and-drop file processing with immediate charting insights.
-  - **Monitoring & Analytics**: Enterprise-level metrics visualization (latencies, confidence drift, model fallback rates).
+## How a prediction is made
 
-### Backend
-- **Langchain Search & Reports**: Utilizes DuckDuckGo (and RSS) for high-availability searching, aggregating public feedback dynamically.
-- **PostgreSQL Persistence**: Captures complete system observability metrics (latency, fallback indicators, inference distribution).
-- **MLflow & DagsHub**: Fully integrated for experiment tracking and model monitoring.
+`INFERENCE_MODE` (environment variable, default `local`) controls who decides:
 
-## Run Instructions
+| Mode | Behaviour |
+|---|---|
+| `local` | The trained scikit-learn model decides. No external API is called. |
+| `llm` | An LLM (Hugging Face, then Groq) decides; if both fail the local model answers. |
+| `hybrid` | The local model decides unless its confidence is below `HYBRID_CONFIDENCE_THRESHOLD` (0.75), then the LLM decides. |
 
-### Prerequisites
-- Python 3.10+ or Docker.
-- A valid PostgreSQL database connection URL.
-- API Keys: LangChain, Groq, and Hugging Face.
+Every response reports `decision_source` (for example `local:logisticregression` or
+`llm:groq/llama-3.1-8b-instant`), the vote of each model that ran, and any `warnings`. LLM decisions have
+no confidence (`null`). The optional transformer tier (`artifacts/model_trainer/model_DistilBERT`) is loaded
+only if its `config.json` declares exactly 3 labels; it contributes a vote but does not decide.
 
-### Running Locally (Python)
+## Setup
 
-1. **Install Dependencies**
+Python 3.12. Dependencies are split by purpose in `requirements/`:
+
+| File | For |
+|---|---|
+| `base.txt` | data handling, config, database |
+| `api.txt` | web app (no ML frameworks) |
+| `serve.txt` | production serving: adds PyTorch, transformers, LangChain, Postgres driver |
+| `train.txt` | the training pipeline (TensorFlow, MLflow, XGBoost). Install in a **separate** environment from `serve.txt` |
+| `dev.txt` | tests and lint |
+
 ```bash
-pip install -r requirements.txt
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt                         # = requirements/serve.txt
+cp .env.example .env                                    # then edit; all keys are optional in local mode
+python app.py                                           # http://127.0.0.1:8000
 ```
 
-2. **Environment Configuration**
-Create a `.env` file in the root directory:
-```env
-DATABASE_URL=postgresql://user:password@localhost:5432/tweet_sentiment
-GROQ_API_KEY=your_groq_api_key
-HF_API_TOKEN=your_hugging_face_token
-```
+`.env` keys: `DATABASE_URL` (default `sqlite:///./monitoring.db`), `INFERENCE_MODE`, `GROQ_API_KEY`,
+`HF_TOKEN`. Without LangChain/`GROQ_API_KEY` the app still starts; `/search-analysis` then returns 503.
 
-3. **Start the Platform**
+Existing databases created by older versions need the migration:
+
 ```bash
-python app.py
+alembic upgrade head
 ```
-*The platform UI and API will be available at http://localhost:8000*
 
-### Running via Docker
-The provided `Dockerfile` creates a highly optimized layer capable of executing the entire multi-model pipeline.
+## Training pipeline
+
 ```bash
-docker build -t tweet-sentiment-platform .
-docker run -d -p 8000:8000 --env-file .env tweet-sentiment-platform
+pip install -r requirements/train.txt        # in its own environment
+python main.py
 ```
 
-## Dependencies Overview
-- **FastAPI / Uvicorn**: High-performance asynchronous API framework and server, alongside Jinja2 templates.
-- **Transformers / Scikit-Learn**: Hybrid ML pipeline providing sub-100ms inference locally.
-- **Langchain**: Agent orchestration and high-speed search aggregation.
-- **SQLAlchemy / Alembic**: Database abstraction and schema migration support.
-- **TailwindCSS / Alpine.js**: Lightweight styling and frontend reactivity.
+Stages: ingest, validate (writes `artifacts/data_validation/validated.csv`), transform and split, then
+train and evaluate each model in `params.yaml` (MLflow logging) and pick the best by macro-F1.
+
+## Docker
+
+```bash
+export POSTGRES_PASSWORD='choose-one'         # required; compose refuses to start without it
+docker compose up --build
+```
+
+The database listens on `127.0.0.1:5432` only. The image installs the CPU-only PyTorch build.
+
+## Tests
+
+```bash
+pip install -r requirements/dev.txt
+python -m pytest
+```
+
+CI runs the same command. `tests/test_transformer_inference.py` additionally needs the serving
+environment (`requirements/serve.txt`) and is skipped otherwise.

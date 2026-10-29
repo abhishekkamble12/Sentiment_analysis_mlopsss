@@ -8,3 +8,6 @@ __pycache__
 artifacts/data_ingestion
 artifacts/data_validation
 Kidney_diesease-classificiation
+*.db
+tests
+.env.docker

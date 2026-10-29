@@ -1,0 +1,15 @@
+# Shared by every environment: data handling, configuration, database.
+# Pinned to the versions the test suite last passed with (Python 3.12).
+numpy==2.5.4
+pandas==3.1.0
+scikit-learn==1.9.1
+scipy==1.18.1
+joblib==1.6.0
+PyYAML==6.0.3
+python-box==7.4.1
+ensure==1.0.4
+pydantic==2.14.1
+pydantic-settings==2.16.2
+python-dotenv==1.2.4
+SQLAlchemy==2.1.6
+alembic==1.20.1

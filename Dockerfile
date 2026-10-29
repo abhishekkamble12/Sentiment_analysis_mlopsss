@@ -3,8 +3,7 @@ FROM python:3.12-slim
 # Set environment variables to optimize Python & memory
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MALLOC_ARENA_MAX=2 \
-    TF_USE_LEGACY_KERAS=1
+    MALLOC_ARENA_MAX=2
 
 WORKDIR /app
 
@@ -16,9 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install python dependencies first (leverage Docker cache)
 COPY requirements.txt .
+COPY requirements/ requirements/
+# The extra index provides the CPU-only torch build (the default Linux wheel bundles CUDA libraries)
 RUN pip install --no-cache-dir --upgrade pip && \
-    sed -i '/-e \./d' requirements.txt && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
 # Copy project files
 COPY . .

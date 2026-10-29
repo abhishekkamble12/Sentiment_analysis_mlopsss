@@ -6,10 +6,10 @@ services:
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your shell or in a .env file next to docker-compose.yml}
       POSTGRES_DB: tweet_sentiment
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,6 +26,9 @@ services:
       - "8000:8000"
     env_file:
       - .env.docker
+    environment:
+      # overrides DATABASE_URL from .env.docker so the password is defined in one place
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/tweet_sentiment
     depends_on:
       db:
         condition: service_healthy

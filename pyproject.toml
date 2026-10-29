@@ -1,7 +1,7 @@
 [project]
-name = "dl-proj"
+name = "tweet-sentiment-classifier"
 version = "0.1.0"
-description = "Add your description here"
+description = "Tweet sentiment classification pipeline and serving API"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
