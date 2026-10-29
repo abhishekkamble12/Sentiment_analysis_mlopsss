@@ -67,6 +67,11 @@ async def experiments_page(request: Request):
 async def analytics_dashboard_page(request: Request):
     return templates.TemplateResponse(request, "pages/analytics_dashboard.html")
 
+
+@app.get("/feedback", response_class=HTMLResponse)
+async def feedback_page(request: Request):
+    return templates.TemplateResponse(request, "pages/feedback.html")
+
 # --- Exception Handlers ---
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -99,6 +104,11 @@ report_agent = _build_agent("ReportAgent")
 # --- In-Memory Cache (Optimization) ---
 predict_cache: Dict[str, Dict[str, Any]] = {}
 search_analysis_cache: Dict[str, Dict[str, Any]] = {}
+
+class FormSubmissionRequest(BaseModel):
+    feedback_text: str
+    respondent: str | None = "Anonymous"
+
 
 class SearchRequest(BaseModel):
     query: str
@@ -203,6 +213,39 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
     report = await asyncio.to_thread(report_agent.generate_report, "Bulk CSV Upload", results[:50]) if report_agent else None
 
     return JSONResponse(content={"results": results, "total_processed": len(results), "report": report})
+
+
+@app.post("/api/form-submission")
+async def handle_form_submission(form_req: FormSubmissionRequest, db: Session = Depends(get_db)):
+    if not pipeline:
+        raise HTTPException(status_code=500, detail="Pipeline not initialized.")
+    text = (form_req.feedback_text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Feedback text cannot be empty.")
+    if len(text) > settings.MAX_TEXT_CHARS:
+        raise HTTPException(status_code=413, detail=f"Text is too long (max {settings.MAX_TEXT_CHARS} characters).")
+
+    start_time = time.time()
+    res = await pipeline.predict(text)
+    latency_ms = (time.time() - start_time) * 1000
+
+    try:
+        _log_prediction(db, res, latency_ms, len(text))
+        await run_in_threadpool(db.commit)
+    except Exception as e:
+        logger.warning(f"Failed to save prediction log from form submission: {e}")
+        await run_in_threadpool(db.rollback)
+
+    return {
+        "status": "success",
+        "feedback": text,
+        "prediction": res.get("prediction", "neutral"),
+        "sentiment": res.get("prediction", "neutral"),
+        "confidence": res.get("confidence"),
+        "decision_source": res.get("decision_source", "unknown"),
+        "model_used": res.get("decision_source", "unknown"),
+        "respondent": form_req.respondent or "Anonymous",
+    }
 
 
 @app.post("/search-analysis")
