@@ -30,8 +30,17 @@ def _encode(y: Iterable, classes: Sequence[int] = CLASSES) -> np.ndarray:
     return idx
 
 
-def _confusion(t: np.ndarray, p: np.ndarray, k: int) -> np.ndarray:
-    return np.bincount(t * k + p, minlength=k * k).reshape(k, k)
+def _confusion(t: np.ndarray, p: np.ndarray, k: int, weights: Optional[np.ndarray] = None) -> np.ndarray:
+    return np.bincount(t * k + p, weights=weights, minlength=k * k).reshape(k, k)
+
+
+def _weights(sample_weight: Optional[Iterable], n: int) -> Optional[np.ndarray]:
+    if sample_weight is None:
+        return None
+    w = np.asarray(list(sample_weight) if not isinstance(sample_weight, np.ndarray) else sample_weight, dtype=float)
+    if len(w) != n or (w < 0).any() or not np.isfinite(w).all():
+        raise ValueError("sample_weight must be finite, non-negative and one per row")
+    return w
 
 
 def _scores(cm: np.ndarray) -> Dict[str, Any]:
@@ -50,7 +59,7 @@ def _scores(cm: np.ndarray) -> Dict[str, Any]:
         "macro_f1": float(f1.mean()),
         "weighted_f1": float((f1 * row).sum() / n) if n else 0.0,
         "kappa": float(kappa),
-        "precision": precision, "recall": recall, "f1": f1, "support": row.astype(int),
+        "precision": precision, "recall": recall, "f1": f1, "support": row,
     }
 
 
@@ -71,19 +80,24 @@ def expected_calibration_error(y_true: Iterable, proba: np.ndarray, classes: Seq
 
 
 def evaluate(y_true: Iterable, y_pred: Iterable, proba: Optional[np.ndarray] = None,
-             classes: Sequence[int] = CLASSES) -> Dict[str, Any]:
+             classes: Sequence[int] = CLASSES, sample_weight: Optional[Iterable] = None) -> Dict[str, Any]:
+    """sample_weight re-weights rows, e.g. to estimate scores on the natural class mix from a class-balanced
+    sample. With weights, supports and the confusion matrix are weighted sums; ECE stays unweighted."""
     t, p = _encode(y_true, classes), _encode(y_pred, classes)
     if len(t) != len(p):
         raise ValueError(f"y_true has {len(t)} rows but y_pred has {len(p)}")
     k = len(classes)
-    cm = _confusion(t, p, k)
+    w = _weights(sample_weight, len(t))
+    cm = _confusion(t, p, k, w)
     s = _scores(cm)
+    support = (lambda v: float(v)) if w is not None else (lambda v: int(v))
     result: Dict[str, Any] = {
         "n": int(len(t)),
+        "weighted": w is not None,
         "accuracy": s["accuracy"], "macro_f1": s["macro_f1"], "weighted_f1": s["weighted_f1"], "kappa": s["kappa"],
         "per_class": {
             CLASS_NAMES.get(c, str(c)): {"precision": float(s["precision"][i]), "recall": float(s["recall"][i]),
-                                         "f1": float(s["f1"][i]), "support": int(s["support"][i])}
+                                         "f1": float(s["f1"][i]), "support": support(s["support"][i])}
             for i, c in enumerate(classes)
         },
         "confusion_matrix": cm.tolist(),
@@ -94,17 +108,20 @@ def evaluate(y_true: Iterable, y_pred: Iterable, proba: Optional[np.ndarray] = N
 
 
 def bootstrap_ci(y_true: Iterable, y_pred: Iterable, metric: str = "macro_f1", n_boot: int = 1000,
-                 seed: int = 0, alpha: float = 0.05, classes: Sequence[int] = CLASSES) -> Tuple[float, float]:
+                 seed: int = 0, alpha: float = 0.05, classes: Sequence[int] = CLASSES,
+                 sample_weight: Optional[Iterable] = None) -> Tuple[float, float]:
     """Percentile bootstrap CI over test rows (resampling rows, models fixed)."""
     if metric not in ("accuracy", "macro_f1", "weighted_f1", "kappa"):
         raise ValueError(f"unsupported metric {metric!r}")
     t, p = _encode(y_true, classes), _encode(y_pred, classes)
     k, n = len(classes), len(t)
     code = t * k + p
+    w = _weights(sample_weight, n)
     rng = np.random.default_rng(seed)
     values = np.empty(n_boot)
     for b in range(n_boot):
-        cm = np.bincount(code[rng.integers(0, n, n)], minlength=k * k).reshape(k, k)
+        idx = rng.integers(0, n, n)
+        cm = np.bincount(code[idx], weights=None if w is None else w[idx], minlength=k * k).reshape(k, k)
         values[b] = _scores(cm)[metric]
     lo, hi = np.percentile(values, [100 * alpha / 2, 100 * (1 - alpha / 2)])
     return float(lo), float(hi)

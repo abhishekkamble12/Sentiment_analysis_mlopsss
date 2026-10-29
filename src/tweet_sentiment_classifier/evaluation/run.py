@@ -52,11 +52,12 @@ class TfidfModel:
         return int(self.predict([text])[0])
 
 
-def _evaluate_model(model, name: str, texts: Sequence[str], y_true: np.ndarray, seed: int, n_boot: int):
+def _evaluate_model(model, name: str, texts: Sequence[str], y_true: np.ndarray, seed: int, n_boot: int,
+                    weights: np.ndarray = None):
     proba = model.predict_proba(texts) if hasattr(model, "predict_proba") else None
     pred = model.predict(texts)
-    result = evaluate(y_true, pred, proba=proba)
-    result["macro_f1_ci"] = bootstrap_ci(y_true, pred, "macro_f1", n_boot=n_boot, seed=seed)
+    result = evaluate(y_true, pred, proba=proba, sample_weight=weights)
+    result["macro_f1_ci"] = bootstrap_ci(y_true, pred, "macro_f1", n_boot=n_boot, seed=seed, sample_weight=weights)
     if hasattr(model, "predict_one"):
         result["latency"] = measure_latency(model.predict_one, texts)
     return result, pred
@@ -82,12 +83,13 @@ def compare_models(y_true: np.ndarray, preds: Dict[str, np.ndarray], seed: int, 
 
 def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = DEFAULT_MODELS,
         params: Dict[str, Any] = None, seed: int = 42, max_features: int = 15000, n_boot: int = 1000,
-        label_source: str = "silver (TextBlob-generated)") -> Dict[str, Any]:
+        label_source: str = "silver (TextBlob-generated)", weights_column: str = None) -> Dict[str, Any]:
     params = params or {}
     train = pd.read_csv(train_csv).dropna(subset=["text"])
     test = pd.read_csv(test_csv).dropna(subset=["text"])
     x_train, y_train = train["text"].astype(str).tolist(), train["sentiment"].astype(int).to_numpy()
     x_test, y_test = test["text"].astype(str).tolist(), test["sentiment"].astype(int).to_numpy()
+    weights = test[weights_column].astype(float).to_numpy() if weights_column else None
 
     split_hash = fingerprint(x_test)
     overlap = len(set(x_test) & set(x_train))
@@ -104,13 +106,16 @@ def run(train_csv: Path, test_csv: Path, out_dir: Path, models: Sequence[str] = 
             model = VaderClassifier()
         else:
             model = TfidfModel(name, params.get(name, {}), seed, max_features).fit(x_train, y_train)
-        results[name], preds[name] = _evaluate_model(model, name, x_test, y_test, seed, n_boot)
+        results[name], preds[name] = _evaluate_model(model, name, x_test, y_test, seed, n_boot, weights)
     comparisons = compare_models(y_test, preds, seed, n_boot)
 
     split_info = {
         "train_csv": str(train_csv), "test_csv": str(test_csv), "n_train": len(x_train), "n_test": len(x_test),
         "test_fingerprint": split_hash, "label_source": label_source, "seed": seed, "max_features": max_features,
         "n_bootstrap": n_boot,
+        # metrics re-weighted by this column (e.g. class-balanced gold sample -> natural class mix);
+        # pairwise comparisons are unweighted
+        "weights_column": weights_column,
         # a non-zero value means some test texts were also seen in training (inflates scores)
         "test_texts_also_in_train": overlap,
         "test_texts_also_in_train_pct": round(100 * overlap / max(len(x_test), 1), 2),
@@ -147,12 +152,14 @@ def main(argv: List[str] = None) -> None:
     parser.add_argument("--params", type=Path, default=Path("params.yaml"), help="hyperparameters (YAML)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--label-source", default="silver (TextBlob-generated)")
+    parser.add_argument("--weights-column", default=None, help="test-file column with per-row weights")
     args = parser.parse_args(argv)
 
     import yaml
     params = yaml.safe_load(args.params.read_text(encoding="utf-8")) if args.params.exists() else {}
     summary = run(args.train, args.test, args.out, args.models, params=params, seed=args.seed,
-                  max_features=int(params.get("max_features", 15000)), label_source=args.label_source)
+                  max_features=int(params.get("max_features", 15000)), label_source=args.label_source,
+                  weights_column=args.weights_column)
     print(_format(summary))
     print(f"\nwrote {args.out / 'results.csv'} and results.json")
 

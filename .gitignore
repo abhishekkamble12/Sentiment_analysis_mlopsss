@@ -227,3 +227,6 @@ artifacts/data_validation/validated.csv
 
 # local virtual environments
 .venv-*/
+
+# Gold annotation data (contains tweet text; see docs/annotation_guidelines.md)
+data/gold/

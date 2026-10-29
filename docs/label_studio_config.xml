@@ -1,0 +1,15 @@
+<View>
+  <Header value="What sentiment does the author express? (see docs/annotation_guidelines.md)"/>
+  <Text name="text" value="$text"/>
+  <Choices name="label" toName="text" choice="single" required="true" showInline="true">
+    <Choice value="negative"/>
+    <Choice value="neutral"/>
+    <Choice value="positive"/>
+  </Choices>
+  <Choices name="flags" toName="text" choice="multiple" showInline="true">
+    <Choice value="sarcasm"/>
+    <Choice value="code_mixed"/>
+    <Choice value="stance_differs"/>
+    <Choice value="unclear"/>
+  </Choices>
+</View>
