@@ -6,3 +6,4 @@ uvicorn==0.54.0
 Jinja2==3.1.6
 python-multipart==0.0.32
 huggingface_hub==2.3.0
+streamlit>=1.35.0
