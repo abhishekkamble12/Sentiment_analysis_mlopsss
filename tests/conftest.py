@@ -1,3 +1,13 @@
+import os
+import tempfile
+
+# Must run before any application module reads settings: tests never touch the repo's monitoring.db
+# and never see real API keys, whatever a developer has in .env.
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(tempfile.mkdtemp(prefix="sentiment_tests_"), "test.db").replace("\\", "/")
+for _key in ("GROQ_API_KEY", "HF_API_TOKEN", "HF_TOKEN"):
+    os.environ[_key] = ""
+os.environ["INFERENCE_MODE"] = "local"
+
 import numpy as np
 import pytest
 

@@ -43,20 +43,20 @@
                 <div class="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent"></div>
                 <h4 class="text-sm text-slate-400 font-semibold uppercase tracking-wider mb-2">Public Sentiment Index</h4>
                 <div class="flex items-baseline space-x-2">
-                    <span class="text-4xl font-extrabold text-white" x-text="data.sentiment_index !== undefined ? data.sentiment_index.toFixed(1) : 'Loading...'"></span>
+                    <span class="text-4xl font-extrabold text-white" x-text="data.sentiment_index == null ? (data.sentiment_index === undefined ? 'Loading...' : 'n/a') : data.sentiment_index.toFixed(1)"></span>
                     <span class="text-sm text-slate-500 font-medium">/ 100</span>
                 </div>
                 <div class="mt-4 w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                    <div class="bg-gradient-to-r from-cyan-500 to-emerald-500 h-2 rounded-full transition-all duration-500" :style="'width: ' + (data.sentiment_index || 50) + '%'"></div>
+                    <div class="bg-gradient-to-r from-cyan-500 to-emerald-500 h-2 rounded-full transition-all duration-500" :style="'width: ' + (data.sentiment_index ?? 0) + '%'"></div>
                 </div>
             </div>
 
             <div class="glass-card p-6 border-rose-500/20 relative overflow-hidden group">
                 <div class="absolute inset-0 bg-gradient-to-br from-rose-500/5 to-transparent"></div>
-                <h4 class="text-sm text-slate-400 font-semibold uppercase tracking-wider mb-2">Critical Alerts</h4>
+                <h4 class="text-sm text-slate-400 font-semibold uppercase tracking-wider mb-2">Low-Confidence Predictions</h4>
                 <div class="flex items-baseline space-x-2">
-                    <span class="text-4xl font-extrabold" :class="data.critical_alerts > 0 ? 'text-rose-400' : 'text-slate-400'" x-text="data.critical_alerts !== undefined ? data.critical_alerts : 'Loading...'"></span>
-                    <span class="text-sm text-slate-500 font-medium">unresolved issues</span>
+                    <span class="text-4xl font-extrabold" :class="data.low_confidence_count > 0 ? 'text-rose-400' : 'text-slate-400'" x-text="data.low_confidence_count !== undefined ? data.low_confidence_count : 'Loading...'"></span>
+                    <span class="text-sm text-slate-500 font-medium">with confidence below 60%</span>
                 </div>
                 <a href="/monitoring-dashboard" class="mt-4 block text-xs text-indigo-400 hover:text-indigo-300 transition">View detailed telemetry &rarr;</a>
             </div>
@@ -71,7 +71,7 @@
             <div class="flex-1 w-full bg-slate-900/50 rounded-xl border border-slate-700/50 p-4 relative flex items-center justify-center">
                 <div id="trendsChart" class="w-full h-full min-h-[250px]"></div>
                 <div x-show="!data.trends || !data.trends.categories || data.trends.categories.length === 0" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
-                    No timeline data logged in SQLite yet. Perform predictions to generate trend lines.
+                    No timeline data logged yet. Perform predictions to generate trend lines.
                 </div>
             </div>
         </div>
@@ -82,24 +82,27 @@
         <div class="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl"></div>
         <h4 class="text-lg font-semibold text-white mb-6 flex items-center">
             <svg class="w-5 h-5 mr-2 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-            Automated Executive Briefing
+            Data Summary
         </h4>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
             <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-700">
-                <h5 class="text-sm font-bold text-emerald-400 mb-2">Positive Accelerators</h5>
-                <p class="text-sm text-slate-300 leading-relaxed">
-                    Keyword trends indicate that positive sentiment is strongly driven by high engagement around terms like: 
-                    <span class="font-semibold text-white" x-text="data.top_keywords ? data.top_keywords.slice(0, 3).join(', ') : 'innovation, model, clean'"></span>.
-                    The platform's high confidence scores suggest sustained favorable conversations on these topics.
+                <h5 class="text-sm font-bold text-emerald-400 mb-2">Sentiment mix of logged predictions</h5>
+                <p class="text-sm text-slate-300 leading-relaxed" x-show="data.total_insights > 0">
+                    <span x-text="data.sentiment_distribution?.positive ?? 0"></span> positive,
+                    <span x-text="data.sentiment_distribution?.neutral ?? 0"></span> neutral,
+                    <span x-text="data.sentiment_distribution?.negative ?? 0"></span> negative
+                    out of <span x-text="data.total_insights"></span> logged predictions.
                 </p>
+                <p class="text-sm text-slate-500 italic" x-show="!(data.total_insights > 0)">No predictions logged yet.</p>
             </div>
             <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-700">
-                <h5 class="text-sm font-bold text-rose-400 mb-2">Risk Factors</h5>
-                <p class="text-sm text-slate-300 leading-relaxed">
-                    Minor negative feedback clusters are centered on terms like:
-                    <span class="font-semibold text-white" x-text="data.top_keywords ? data.top_keywords.slice(3, 6).join(', ') : 'delays, error, latency'"></span>.
-                    Inference telemetry shows high prediction reliability for these issues, indicating they warrant targeted review.
+                <h5 class="text-sm font-bold text-indigo-400 mb-2">Keywords from recent search reports</h5>
+                <p class="text-sm text-slate-300 leading-relaxed" x-show="data.top_keywords && data.top_keywords.length">
+                    Most frequent across the last <span x-text="data.reports_considered"></span> reports:
+                    <span class="font-semibold text-white" x-text="(data.top_keywords || []).join(', ')"></span>.
+                    These keywords are extracted by an LLM and are not linked to a sentiment class.
                 </p>
+                <p class="text-sm text-slate-500 italic" x-show="!(data.top_keywords && data.top_keywords.length)">No search reports yet.</p>
             </div>
         </div>
     </div>

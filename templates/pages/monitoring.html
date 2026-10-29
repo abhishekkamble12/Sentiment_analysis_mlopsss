@@ -47,8 +47,8 @@
             <div>
                 <p class="text-sm text-slate-400 mb-1">Avg Confidence Score</p>
                 <h3 class="text-3xl font-bold text-white flex items-end">
-                    <span x-text="((metrics.avg_confidence || 0) * 100).toFixed(1)"></span>
-                    <span class="text-sm text-slate-500 ml-1 mb-1">%</span>
+                    <span x-text="metrics.avg_confidence == null ? 'n/a' : (metrics.avg_confidence * 100).toFixed(1)"></span>
+                    <span class="text-sm text-slate-500 ml-1 mb-1" x-show="metrics.avg_confidence != null">%</span>
                 </h3>
             </div>
             <div class="mt-4 w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -60,15 +60,15 @@
         <div class="glass-card p-6 flex flex-col justify-between relative overflow-hidden">
             <div class="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent"></div>
             <div>
-                <p class="text-sm text-slate-400 mb-1">LLM Fallback Rate</p>
+                <p class="text-sm text-slate-400 mb-1">Decided by an LLM</p>
                 <h3 class="text-3xl font-bold text-white flex items-end">
-                    <span x-text="((metrics.fallback_rate || 0) * 100).toFixed(1)"></span>
+                    <span x-text="((metrics.llm_share || 0) * 100).toFixed(1)"></span>
                     <span class="text-sm text-slate-500 ml-1 mb-1">%</span>
                 </h3>
             </div>
             <div class="mt-4 flex items-center text-xs text-purple-400">
                 <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                Gemma routing activated
+                of logged predictions (the rest used local models)
             </div>
         </div>
 
@@ -87,40 +87,52 @@
 
     <!-- Charts Area -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Model Usage Distribution (Simulated) -->
+        <!-- Which model made each logged decision -->
         <div class="glass-card p-6">
-            <h4 class="text-lg font-semibold text-white mb-4">Model Usage Distribution</h4>
+            <h4 class="text-lg font-semibold text-white mb-4">Model Usage (decision source)</h4>
             <div class="relative h-64 w-full">
                 <canvas id="modelChart"></canvas>
             </div>
         </div>
-        
-        <!-- Prediction Distribution (Actual) -->
+
+        <!-- Prediction Distribution -->
         <div class="glass-card p-6">
             <h4 class="text-lg font-semibold text-white mb-4">Sentiment Distribution</h4>
             <div class="relative h-64 w-full" id="sentimentChartEcharts"></div>
         </div>
     </div>
 
-    <!-- Real-time logs simulation table -->
+    <!-- Most recent logged predictions -->
     <div class="glass-card p-6 overflow-hidden">
         <div class="flex justify-between items-center mb-4">
-            <h4 class="text-lg font-semibold text-white">System Inference Logs</h4>
-            <button class="text-xs px-3 py-1 bg-slate-800 text-slate-300 rounded hover:bg-slate-700 transition">View All</button>
+            <h4 class="text-lg font-semibold text-white">Recent Predictions</h4>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
                     <tr class="border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                         <th class="pb-3 pr-4">Timestamp</th>
-                        <th class="pb-3 px-4">Model Route</th>
+                        <th class="pb-3 px-4">Decided by</th>
+                        <th class="pb-3 px-4">Prediction</th>
                         <th class="pb-3 px-4 text-right">Latency</th>
                         <th class="pb-3 px-4 text-right">Confidence</th>
-                        <th class="pb-3 pl-4 text-center">Fallback</th>
+                        <th class="pb-3 pl-4 text-center">LLM</th>
                     </tr>
                 </thead>
-                <tbody class="text-sm font-mono" id="logTableBody">
-                    <!-- Javascript will populate simulated logs based on metrics -->
+                <tbody class="text-sm font-mono">
+                    <template x-for="row in logs" :key="row.id">
+                        <tr class="border-b border-slate-800/50 hover:bg-slate-800/30">
+                            <td class="py-3 pr-4 text-slate-400" x-text="row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '--'"></td>
+                            <td class="py-3 px-4 text-indigo-300" x-text="row.model_used"></td>
+                            <td class="py-3 px-4 text-slate-300" x-text="row.prediction"></td>
+                            <td class="py-3 px-4 text-right text-slate-300" x-text="row.latency_ms.toFixed(0) + 'ms'"></td>
+                            <td class="py-3 px-4 text-right text-cyan-400" x-text="row.confidence == null ? 'n/a' : row.confidence.toFixed(2)"></td>
+                            <td class="py-3 pl-4 text-center text-xs" x-text="row.llm ? 'Yes' : 'No'"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="logs.length === 0">
+                        <td colspan="6" class="py-8 text-center text-slate-500 text-sm">No predictions logged yet.</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
@@ -134,51 +146,48 @@
 document.addEventListener('alpine:init', () => {
     Alpine.data('monitoringApp', () => ({
         metrics: {},
+        logs: [],
         lastUpdated: '--:--:--',
-        
+
         getTotalVolume() {
-            if(!this.metrics.prediction_distribution) return 0;
-            return Object.values(this.metrics.prediction_distribution).reduce((a, b) => a + b, 0);
+            return this.metrics.total_predictions || 0;
         },
-        
+
         async initData() {
-            await this.fetchMetrics();
-            setInterval(() => this.fetchMetrics(), 10000); // poll every 10s
+            await this.fetchAll();
+            setInterval(() => this.fetchAll(), 10000); // poll every 10s
         },
-        
-        async fetchMetrics() {
+
+        async fetchAll() {
             try {
-                // Wait, original route is /monitoring. Since HTML is /monitoring-dashboard, API is still /monitoring
-                const res = await fetch('/monitoring');
-                if(res.ok) {
-                    this.metrics = await res.json();
+                const [m, l] = await Promise.all([fetch('/monitoring'), fetch('/api/recent-logs?limit=10')]);
+                if (m.ok) {
+                    this.metrics = await m.json();
                     this.lastUpdated = new Date().toLocaleTimeString();
                     this.updateCharts();
-                    this.updateSimulatedLogs();
+                }
+                if (l.ok) {
+                    this.logs = (await l.json()).logs;
                 }
             } catch(e) {
-                console.error("Failed to fetch metrics", e);
+                console.error("Failed to fetch monitoring data", e);
             }
         },
-        
+
         updateCharts() {
-            // Chart 1: Model Usage (Simulated since backend doesn't provide exact split in /monitoring)
-            const fallbackP = this.metrics.fallback_rate || 0;
-            const fastP = (1 - fallbackP) * 0.7; // arbitrary split
-            const refineP = (1 - fallbackP) * 0.3;
-            
+            // Chart 1: how many logged predictions each decision source made (from the database)
+            const usage = this.metrics.model_usage || {};
+            const labels = Object.keys(usage);
+            const counts = labels.map(k => usage[k]);
+            const palette = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#14b8a6', '#64748b'];
+
             const ctx = document.getElementById('modelChart');
             if(ctx && !window.modelChartInstance) {
                 window.modelChartInstance = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
-                        labels: ['LinearSVC (Fast)', 'DistilBERT (Refine)', 'Gemma (Fallback)'],
-                        datasets: [{
-                            data: [fastP * 100, refineP * 100, fallbackP * 100],
-                            backgroundColor: ['#10b981', '#3b82f6', '#8b5cf6'],
-                            borderWidth: 0,
-                            cutout: '70%'
-                        }]
+                        labels: labels,
+                        datasets: [{ data: counts, backgroundColor: palette, borderWidth: 0, cutout: '70%' }]
                     },
                     options: {
                         responsive: true, maintainAspectRatio: false,
@@ -188,10 +197,11 @@ document.addEventListener('alpine:init', () => {
                     }
                 });
             } else if(window.modelChartInstance) {
-                window.modelChartInstance.data.datasets[0].data = [fastP*100, refineP*100, fallbackP*100];
+                window.modelChartInstance.data.labels = labels;
+                window.modelChartInstance.data.datasets[0].data = counts;
                 window.modelChartInstance.update();
             }
-            
+
             // Chart 2: Echarts Sentiment
             const sentDom = document.getElementById('sentimentChartEcharts');
             if(sentDom && !window.sentChartInstance) {
@@ -221,37 +231,6 @@ document.addEventListener('alpine:init', () => {
                     }]
                 });
             }
-        },
-        
-        updateSimulatedLogs() {
-            const tbody = document.getElementById('logTableBody');
-            if(!tbody) return;
-            
-            // Generate some random fake logs just for UI preview matching the metrics averages
-            let html = '';
-            const models = ['LinearSVC', 'DistilBERT', 'Gemma LLM'];
-            const avgLat = this.metrics.avg_latency_ms || 100;
-            const avgConf = this.metrics.avg_confidence || 0.8;
-            
-            for(let i=0; i<5; i++) {
-                const now = new Date(Date.now() - i*15000);
-                const m = models[Math.floor(Math.random()*models.length)];
-                const lat = m.includes('Gemma') ? avgLat * 5 : (m.includes('DistilBERT') ? avgLat * 2 : avgLat * 0.2);
-                const conf = (avgConf + (Math.random()*0.1 - 0.05)).toFixed(2);
-                const fb = m.includes('Gemma');
-                
-                html += `
-                <tr class="border-b border-slate-800/50 hover:bg-slate-800/30">
-                    <td class="py-3 pr-4 text-slate-400">${now.toLocaleTimeString()}</td>
-                    <td class="py-3 px-4 text-indigo-300">${m}</td>
-                    <td class="py-3 px-4 text-right text-slate-300">${lat.toFixed(0)}ms</td>
-                    <td class="py-3 px-4 text-right text-cyan-400">${conf}</td>
-                    <td class="py-3 pl-4 text-center">
-                        <span class="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs ${fb ? 'bg-purple-500/10 text-purple-400' : 'bg-slate-500/10 text-slate-500'}">${fb ? 'Yes' : 'No'}</span>
-                    </td>
-                </tr>`;
-            }
-            tbody.innerHTML = html;
         }
     }));
 });

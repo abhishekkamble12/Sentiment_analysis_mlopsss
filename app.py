@@ -4,7 +4,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import pandas as pd
 import io
+import json
 import time
+from pathlib import Path
 import uvicorn
 import logging
 from typing import Dict, Any
@@ -13,7 +15,6 @@ from sqlalchemy import func
 from pydantic import BaseModel
 
 from tweet_sentiment_classifier.pipeline.prediction_pipeline import PredictionPipeline
-from tweet_sentiment_classifier.components.agents import SearchAgent, ReportAgent
 from tweet_sentiment_classifier.config.database import engine, Base, get_db
 from tweet_sentiment_classifier.entity.models import PredictionLog, ReportLog
 from tweet_sentiment_classifier.config.env_config import get_settings
@@ -79,9 +80,19 @@ except Exception as e:
     logger.error(f"Failed to initialize full pipeline: {e}")
     pipeline = None
 
+def _build_agent(name: str):
+    """Build a LangChain agent, or None if its dependencies/keys are missing (the endpoints say so)."""
+    try:
+        from tweet_sentiment_classifier.components import agents
+        return getattr(agents, name)()
+    except Exception as e:
+        logger.warning(f"{name} unavailable: {e}")
+        return None
+
+
 logger.info("Initializing LangChain Agents...")
-search_agent = SearchAgent()
-report_agent = ReportAgent()
+search_agent = _build_agent("SearchAgent")
+report_agent = _build_agent("ReportAgent")
 
 # --- In-Memory Cache (Optimization) ---
 predict_cache: Dict[str, Dict[str, Any]] = {}
@@ -172,7 +183,7 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         
         # Generate an AI Report for the bulk upload
         # Limit to first 50 to avoid massive prompt token usage, but provide enough context
-        report = report_agent.generate_report("Bulk CSV Upload", results[:50])
+        report = report_agent.generate_report("Bulk CSV Upload", results[:50]) if report_agent else None
         
         return JSONResponse(content={"results": results, "total_processed": len(results), "report": report})
     finally:
@@ -185,6 +196,8 @@ async def search_analysis(request: SearchRequest, db: Session = Depends(get_db))
     if not pipeline:
         raise HTTPException(status_code=500, detail="Pipeline not initialized.")
         
+    if not search_agent or not report_agent:
+        raise HTTPException(status_code=503, detail="Search analysis needs the LangChain agents and GROQ_API_KEY.")
     query = request.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
@@ -258,158 +271,175 @@ async def search_analysis(request: SearchRequest, db: Session = Depends(get_db))
         if 'df' in locals():
             del df
 
+LABEL_ALIASES = {"-1": "negative", "-1.0": "negative", "0": "neutral", "0.0": "neutral", "1": "positive", "1.0": "positive"}
+
+
+def _normalize_label(label) -> str:
+    """Older log rows stored numeric labels ('-1','0','1'); newer ones store names."""
+    return LABEL_ALIASES.get(str(label), str(label))
+
+
+def _is_llm(model_used: str) -> bool:
+    m = (model_used or "").lower()
+    return m.startswith("llm:") or "gemma" in m or "groq" in m  # the latter two match legacy rows
+
+
+def _label_counts(db: Session) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    rows = db.query(PredictionLog.prediction, func.count(PredictionLog.id)).group_by(PredictionLog.prediction).all()
+    for label, n in rows:
+        key = _normalize_label(label)
+        counts[key] = counts.get(key, 0) + n
+    return counts
+
+
 @app.get("/monitoring")
 def get_monitoring(db: Session = Depends(get_db)):
+    total = db.query(func.count(PredictionLog.id)).scalar() or 0
     avg_lat = db.query(func.avg(PredictionLog.latency_ms)).scalar() or 0.0
-    avg_conf = db.query(func.avg(PredictionLog.confidence)).scalar() or 0.0
-    
+    avg_conf = db.query(func.avg(PredictionLog.confidence)).scalar()  # NULL (LLM) rows are ignored
+    confidence_n = db.query(func.count(PredictionLog.confidence)).scalar() or 0
+
+    usage = dict(db.query(PredictionLog.model_used, func.count(PredictionLog.id)).group_by(PredictionLog.model_used).all())
+    llm_total = sum(n for model, n in usage.items() if _is_llm(model))
+
     total_reports = db.query(ReportLog).count()
-    fallback_count = db.query(ReportLog).filter(ReportLog.fallback_used == True).count()
-    fallback_rate = (fallback_count / total_reports) if total_reports > 0 else 0.0
-    
-    preds = db.query(PredictionLog.prediction, func.count(PredictionLog.id)).group_by(PredictionLog.prediction).all()
-    dist = {str(p[0]): p[1] for p in preds}
-    
+    search_fallbacks = db.query(ReportLog).filter(ReportLog.fallback_used == True).count()  # noqa: E712
+
     return {
+        "total_predictions": total,
         "avg_latency_ms": round(avg_lat, 2),
-        "avg_confidence": round(avg_conf, 4),
-        "fallback_rate": round(fallback_rate, 4),
-        "prediction_distribution": dist
+        "avg_confidence": None if avg_conf is None else round(avg_conf, 4),
+        "confidence_n": confidence_n,
+        "prediction_distribution": _label_counts(db),
+        "model_usage": usage,
+        "llm_share": round(llm_total / total, 4) if total else 0.0,
+        # share of search analyses that had to use the RSS fallback (unrelated to the LLM)
+        "search_fallback_rate": round(search_fallbacks / total_reports, 4) if total_reports else 0.0,
     }
+
+
+@app.get("/api/recent-logs")
+def get_recent_logs(limit: int = 10, db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 100))
+    rows = db.query(PredictionLog).order_by(PredictionLog.id.desc()).limit(limit).all()
+    return {"logs": [
+        {
+            "id": r.id,
+            "timestamp": r.timestamp.isoformat() + "Z" if r.timestamp else None,  # stored as naive UTC
+            "model_used": r.model_used,
+            "prediction": _normalize_label(r.prediction),
+            "latency_ms": round(r.latency_ms, 1),
+            "confidence": r.confidence,
+            "llm": _is_llm(r.model_used),
+        }
+        for r in rows
+    ]}
+
 
 @app.get("/api/analytics")
 def get_analytics(db: Session = Depends(get_db)):
-    try:
-        import json
-        total_predictions = db.query(PredictionLog).count()
-        
-        avg_lat = db.query(func.avg(PredictionLog.latency_ms)).scalar() or 0.0
-        avg_conf = db.query(func.avg(PredictionLog.confidence)).scalar() or 0.0
-        
-        preds = db.query(PredictionLog.prediction, func.count(PredictionLog.id)).group_by(PredictionLog.prediction).all()
-        sentiment_dist = {str(p[0]): p[1] for p in preds}
-        
-        for key in ["positive", "neutral", "negative"]:
-            if key not in sentiment_dist:
-                sentiment_dist[key] = 0
-                
-        pos_count = sentiment_dist.get("positive", 0)
-        neg_count = sentiment_dist.get("negative", 0)
-        if total_predictions > 0:
-            sentiment_index = round(((pos_count - neg_count) / total_predictions) * 50 + 50, 1)
-        else:
-            sentiment_index = 50.0
-            
-        critical_alerts_count = db.query(PredictionLog).filter(PredictionLog.confidence < 0.6).count()
-        
-        trend_data = db.query(
-            func.strftime('%Y-%m-%d %H:00', PredictionLog.timestamp).label('hour'),
-            PredictionLog.prediction,
-            func.count(PredictionLog.id)
-        ).group_by('hour', PredictionLog.prediction).order_by('hour').all()
-        
-        trends = {}
-        for hour, pred, count in trend_data:
-            if not hour:
-                continue
-            if hour not in trends:
-                trends[hour] = {"positive": 0, "neutral": 0, "negative": 0}
-            trends[hour][pred] = count
-            
-        sorted_hours = sorted(trends.keys())[-10:]
-        trends_formatted = {
-            "categories": [h.split(" ")[1] if " " in h else h for h in sorted_hours],
-            "positive": [trends[h]["positive"] for h in sorted_hours],
-            "neutral": [trends[h]["neutral"] for h in sorted_hours],
-            "negative": [trends[h]["negative"] for h in sorted_hours]
-        }
-        
-        recent_reports = db.query(ReportLog).order_by(ReportLog.timestamp.desc()).limit(10).all()
-        all_keywords = []
-        for r in recent_reports:
-            if r.top_keywords:
-                if isinstance(r.top_keywords, list):
-                    all_keywords.extend(r.top_keywords)
-                elif isinstance(r.top_keywords, str):
-                    try:
-                        kws = json.loads(r.top_keywords)
-                        if isinstance(kws, list):
-                            all_keywords.extend(kws)
-                    except:
-                        pass
-        
-        kw_freq = {}
-        for kw in all_keywords:
-            if kw and len(kw.strip()) > 1:
+    total = db.query(func.count(PredictionLog.id)).scalar() or 0
+    avg_lat = db.query(func.avg(PredictionLog.latency_ms)).scalar() or 0.0
+    avg_conf = db.query(func.avg(PredictionLog.confidence)).scalar()
+
+    dist = _label_counts(db)
+    for key in ("positive", "neutral", "negative"):
+        dist.setdefault(key, 0)
+
+    # (positive - negative) / total mapped to 0..100; undefined when there is no data
+    sentiment_index = None
+    if total:
+        sentiment_index = round((dist["positive"] - dist["negative"]) / total * 50 + 50, 1)
+
+    low_confidence = db.query(PredictionLog).filter(PredictionLog.confidence < 0.6).count()
+
+    # Hourly trend bucketed in Python, so it works on every database (strftime is SQLite-only)
+    rows = db.query(PredictionLog.timestamp, PredictionLog.prediction) \
+        .order_by(PredictionLog.timestamp.desc()).limit(20000).all()
+    buckets: Dict[str, Dict[str, int]] = {}
+    for ts, pred in rows:
+        if ts is None:
+            continue
+        hour = ts.strftime("%m-%d %H:00")
+        bucket = buckets.setdefault(hour, {"positive": 0, "neutral": 0, "negative": 0})
+        key = _normalize_label(pred)
+        if key in bucket:
+            bucket[key] += 1
+    hours = sorted(buckets)[-10:]
+    trends = {
+        "categories": hours,
+        "positive": [buckets[h]["positive"] for h in hours],
+        "neutral": [buckets[h]["neutral"] for h in hours],
+        "negative": [buckets[h]["negative"] for h in hours],
+    }
+
+    recent_reports = db.query(ReportLog).order_by(ReportLog.timestamp.desc()).limit(10).all()
+    kw_freq: Dict[str, int] = {}
+    for r in recent_reports:
+        kws = r.top_keywords
+        if isinstance(kws, str):
+            try:
+                kws = json.loads(kws)
+            except ValueError:
+                kws = []
+        for kw in kws or []:
+            if isinstance(kw, str) and len(kw.strip()) > 1:
                 kw_freq[kw] = kw_freq.get(kw, 0) + 1
-        sorted_kws = sorted(kw_freq.items(), key=lambda x: x[1], reverse=True)
-        top_kws = [kw[0] for kw in sorted_kws[:6]]
-        
-        if not top_kws:
-            top_kws = ["sentiment", "feedback", "latency", "confidence", "ensemble", "gemma"]
-            
-        return {
-            "total_insights": total_predictions,
-            "avg_latency_ms": round(avg_lat, 2),
-            "avg_confidence": round(avg_conf, 4),
-            "sentiment_index": sentiment_index,
-            "critical_alerts": critical_alerts_count,
-            "sentiment_distribution": sentiment_dist,
-            "trends": trends_formatted,
-            "top_keywords": top_kws
-        }
-    except Exception as e:
-        logger.error(f"Error serving /api/analytics: {e}")
-        return {
-            "total_insights": 0,
-            "avg_latency_ms": 0.0,
-            "avg_confidence": 0.0,
-            "sentiment_index": 50.0,
-            "critical_alerts": 0,
-            "sentiment_distribution": {"positive": 0, "neutral": 0, "negative": 0},
-            "trends": {"categories": [], "positive": [], "neutral": [], "negative": []},
-            "top_keywords": ["sentiment", "feedback", "latency", "confidence", "ensemble", "gemma"]
-        }
+    top_keywords = [k for k, _ in sorted(kw_freq.items(), key=lambda x: x[1], reverse=True)[:6]]
+
+    return {
+        "total_insights": total,
+        "avg_latency_ms": round(avg_lat, 2),
+        "avg_confidence": None if avg_conf is None else round(avg_conf, 4),
+        "sentiment_index": sentiment_index,
+        "low_confidence_count": low_confidence,
+        "sentiment_distribution": dist,
+        "trends": trends,
+        "top_keywords": top_keywords,  # [] when no search reports exist
+        "reports_considered": len(recent_reports),
+    }
+
+
+def _load_best_model_meta() -> Dict[str, Any]:
+    try:
+        return json.loads(Path("artifacts/best_model/best_model_metadata.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
 
 @app.get("/api/experiments")
 def get_experiments():
-    from pathlib import Path
     summary_path = Path("artifacts/model_evaluation/all_models_summary.csv")
     if not summary_path.exists():
         return {"experiments": []}
-    
+
     try:
         df = pd.read_csv(summary_path)
-        df = df.fillna({
-            "Accuracy": 0.0,
-            "F1 Score (Weighted)": 0.0,
-            "F1 Score (Macro)": 0.0,
-            "Precision (Weighted)": 0.0,
-            "Recall (Weighted)": 0.0,
-            "Latency": 0.0,
-            "Timestamp": ""
-        })
-        
+        df = df.fillna({"Accuracy": 0.0, "F1 Score (Weighted)": 0.0, "F1 Score (Macro)": 0.0, "Latency": 0.0, "Timestamp": ""})
+
+        # Mirror what PredictionPipeline actually serves (see prediction_pipeline.py)
+        meta = _load_best_model_meta()
+        best = meta.get("best_model_name")
+        fast = meta.get("tier_1_fast_fallback", "LogisticRegression")
+
         experiments = []
         for _, row in df.iterrows():
-            model_name = row.get("Model Name", "")
-            if model_name == "LinearSVC":
-                status = "Deployed (Tier 1)"
-            elif model_name == "DistilBERT":
-                status = "Deployed (Tier 2)"
-            elif model_name in ["LogisticRegression", "RidgeClassifier"]:
-                status = "Standby (Ensemble)"
-            else:
-                status = "Trained"
-                
+            name = row.get("Model Name", "")
+            labels = []
+            if name == fast:
+                labels.append("Serving (fast tier)")
+            if name == best:
+                labels.append("Best by macro-F1")
             experiments.append({
                 "timestamp": row.get("Timestamp", "") or row.get("timestamp", ""),
-                "model_name": model_name,
+                "model_name": name,
                 "accuracy": round(float(row.get("Accuracy", 0.0)), 4),
                 "f1_weighted": round(float(row.get("F1 Score (Weighted)", 0.0)), 4),
                 "f1_macro": round(float(row.get("F1 Score (Macro)", 0.0)), 4),
-                "latency_seconds": round(float(row.get("Latency", 0.0)), 4),
-                "status": status
+                # wall-clock time to evaluate the whole test set, not per-prediction latency
+                "eval_seconds": round(float(row.get("Latency", 0.0)), 4),
+                "status": " + ".join(labels) or "Evaluated",
             })
         return {"experiments": experiments}
     except Exception as e:

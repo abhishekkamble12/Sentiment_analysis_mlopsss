@@ -43,7 +43,7 @@
                         <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Date / Timestamp</th>
                         <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Accuracy</th>
                         <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">F1 Score (Weighted)</th>
-                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Latency</th>
+                        <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Eval time (whole test set)</th>
                         <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Status</th>
                     </tr>
                 </thead>
@@ -57,7 +57,7 @@
                             <td class="px-6 py-4 text-sm text-slate-400 font-mono" x-text="exp.timestamp || 'N/A'"></td>
                             <td class="px-6 py-4 text-sm text-emerald-400 font-mono font-semibold" x-text="exp.accuracy.toFixed(4)"></td>
                             <td class="px-6 py-4 text-sm text-slate-300 font-mono" x-text="exp.f1_weighted.toFixed(4)"></td>
-                            <td class="px-6 py-4 text-sm text-slate-300 font-mono" x-text="exp.latency_seconds > 0 ? (exp.latency_seconds * 1000).toFixed(0) + 'ms' : 'N/A'"></td>
+                            <td class="px-6 py-4 text-sm text-slate-300 font-mono" x-text="exp.eval_seconds > 0 ? exp.eval_seconds.toFixed(2) + 's' : 'N/A'"></td>
                             <td class="px-6 py-4 text-right">
                                 <span class="px-2 py-1 text-xs rounded border font-medium" :class="getStatusBadgeClasses(exp.status)" x-text="exp.status"></span>
                             </td>
@@ -100,22 +100,19 @@ document.addEventListener('alpine:init', () => {
 
         async syncData() {
             this.syncing = true;
-            // Simulate sync overhead
-            await new Promise(resolve => setTimeout(resolve, 1500));
             await this.fetchExperiments();
             this.syncing = false;
         },
 
         getStatusDotColor(status) {
-            if (status.includes('Deployed')) return 'bg-emerald-500';
-            if (status.includes('Standby')) return 'bg-blue-500';
+            if (status.includes('Serving')) return 'bg-emerald-500';
+            if (status.includes('Best')) return 'bg-purple-500';
             return 'bg-slate-500';
         },
 
         getStatusBadgeClasses(status) {
-            if (status.includes('Tier 1')) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-            if (status.includes('Tier 2')) return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
-            if (status.includes('Standby')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+            if (status.includes('Serving')) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+            if (status.includes('Best')) return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
             return 'bg-slate-800 text-slate-400 border-slate-700';
         }
     }));
