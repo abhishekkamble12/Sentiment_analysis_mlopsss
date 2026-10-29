@@ -95,14 +95,16 @@ def app_module():
 
 
 @pytest.fixture
-def env(app_module, monkeypatch):
+def env(app_module, monkeypatch, tmp_path_factory):
     from fastapi.testclient import TestClient
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
     from tweet_sentiment_classifier.config.database import Base, get_db
 
-    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    # A file-backed DB (not one shared in-memory connection): commits run in worker threads, and like a real
+    # deployment each session needs its own connection.
+    db_file = tmp_path_factory.mktemp("db") / "api.db"
+    engine = create_engine(f"sqlite:///{db_file.as_posix()}", connect_args={"check_same_thread": False, "timeout": 30})
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
 

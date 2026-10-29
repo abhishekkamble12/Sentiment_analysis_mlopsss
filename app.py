@@ -1,3 +1,4 @@
+from fastapi.concurrency import run_in_threadpool
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,31 +41,31 @@ templates = Jinja2Templates(directory="templates")
 # --- UI Routes ---
 @app.get("/", response_class=HTMLResponse)
 async def landing_page(request: Request):
-    return templates.TemplateResponse("pages/landing.html", {"request": request})
+    return templates.TemplateResponse(request, "pages/landing.html")
 
 @app.get("/predict-ui", response_class=HTMLResponse)
 async def predict_page(request: Request):
-    return templates.TemplateResponse("pages/predict.html", {"request": request})
+    return templates.TemplateResponse(request, "pages/predict.html")
 
 @app.get("/csv-analysis", response_class=HTMLResponse)
 async def csv_analysis_page(request: Request):
-    return templates.TemplateResponse("pages/csv_analysis.html", {"request": request})
+    return templates.TemplateResponse(request, "pages/csv_analysis.html")
 
 @app.get("/search-analysis-ui", response_class=HTMLResponse)
 async def search_analysis_page(request: Request):
-    return templates.TemplateResponse("pages/search_analysis.html", {"request": request})
+    return templates.TemplateResponse(request, "pages/search_analysis.html")
 
 @app.get("/monitoring-dashboard", response_class=HTMLResponse)
 async def monitoring_page(request: Request):
-    return templates.TemplateResponse("pages/monitoring.html", {"request": request})
+    return templates.TemplateResponse(request, "pages/monitoring.html")
 
 @app.get("/experiments", response_class=HTMLResponse)
 async def experiments_page(request: Request):
-    return templates.TemplateResponse("pages/experiments.html", {"request": request})
+    return templates.TemplateResponse(request, "pages/experiments.html")
 
 @app.get("/analytics-dashboard", response_class=HTMLResponse)
 async def analytics_dashboard_page(request: Request):
-    return templates.TemplateResponse("pages/analytics_dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "pages/analytics_dashboard.html")
 
 # --- Exception Handlers ---
 @app.exception_handler(Exception)
@@ -141,10 +142,10 @@ async def predict_sentiment(text: str, db: Session = Depends(get_db)) -> Dict[st
 
     try:
         _log_prediction(db, result, latency_ms, len(text))
-        db.commit()
+        await run_in_threadpool(db.commit)
     except Exception as e:
         logger.warning(f"Failed to save prediction log: {e}")
-        db.rollback()
+        await run_in_threadpool(db.rollback)
 
     # Keep cache size bounded
     if len(predict_cache) > 1000:
@@ -196,7 +197,7 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
             "model_used": res.get("decision_source", "unknown")
         })
 
-    db.commit()
+    await run_in_threadpool(db.commit)
 
     # Limit the report to the first 50 rows to bound prompt size; the blocking LLM call runs in a thread
     report = await asyncio.to_thread(report_agent.generate_report, "Bulk CSV Upload", results[:50]) if report_agent else None
@@ -252,7 +253,7 @@ async def search_analysis(request: SearchRequest, db: Session = Depends(get_db))
         pred = res["prediction"]
         sentiment_counts[pred] = sentiment_counts.get(pred, 0) + 1
 
-    db.commit()
+    await run_in_threadpool(db.commit)
     report = await asyncio.to_thread(report_agent.generate_report, query, predictions)
 
     db.add(ReportLog(
@@ -261,7 +262,7 @@ async def search_analysis(request: SearchRequest, db: Session = Depends(get_db))
         sentiment_distribution=sentiment_counts,
         fallback_used=fallback_used
     ))
-    db.commit()
+    await run_in_threadpool(db.commit)
 
     response_data = {
         "distribution": sentiment_counts,
@@ -471,6 +472,70 @@ def get_experiments():
     except Exception as e:
         logger.error(f"Error reading experiments: {e}")
         return {"experiments": [], "error": str(e)}
+
+
+RESULTS_DIR = Path("artifacts/evaluation")
+LABEL_WORDS = {-1: "negative", 0: "neutral", 1: "positive"}
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _model_table(run: Dict[str, Any]) -> list:
+    rows = []
+    for name, r in run.get("results", {}).items():
+        ci = r.get("macro_f1_ci") or (None, None)
+        rows.append({"model": name, "macro_f1": r["macro_f1"], "ci_low": ci[0], "ci_high": ci[1],
+                     "accuracy": r["accuracy"], "kappa": r["kappa"], "ece": r.get("ece"),
+                     "baseline": name in BASELINE_MODELS})
+    return rows
+
+
+def _run_summary(run):
+    if not run:
+        return None
+    split = run.get("split", {})
+    return {"run_id": run.get("run_id"), "n_test": split.get("n_test"), "label_source": split.get("label_source"),
+            "overlap_pct": split.get("test_texts_also_in_train_pct"), "weights_column": split.get("weights_column"),
+            "models": _model_table(run), "comparisons": run.get("comparisons", [])}
+
+
+@app.get("/results", response_class=HTMLResponse)
+async def results_page(request: Request):
+    return templates.TemplateResponse(request, "pages/results.html")
+
+
+@app.get("/api/results")
+def get_results():
+    """Everything on the results page, read from artifact files (nothing is hardcoded)."""
+    seeds = _read_json(RESULTS_DIR / "seed_study.json")
+    tuning = _read_json(RESULTS_DIR / "tuning.json")
+    budget = _read_json(Path("artifacts/experiments/gold_budget/results.json"))
+
+    disagreements = []
+    gold_predictions = RESULTS_DIR / "gold" / "predictions.csv"
+    if gold_predictions.exists():
+        pred = pd.read_csv(gold_predictions)
+        if "pred_TextBlob" in pred:
+            diff = pred[pred["pred_TextBlob"] != pred["label"]].head(25)
+            disagreements = [{"text": r["text"], "human": LABEL_WORDS.get(int(r["label"])),
+                              "textblob": LABEL_WORDS.get(int(r["pred_TextBlob"]))} for _, r in diff.iterrows()]
+
+    return {
+        "silver": _run_summary(_read_json(RESULTS_DIR / "results.json")),
+        "gold": _run_summary(_read_json(RESULTS_DIR / "gold" / "results.json")),
+        "seed_study": None if not seeds else {
+            "seeds": seeds["seeds"],
+            "models": [{"model": m, "mean": s["macro_f1"]["mean"], "sd": s["macro_f1"]["sd"],
+                        "min": s["macro_f1"]["min"], "max": s["macro_f1"]["max"]} for m, s in seeds["summary"].items()]},
+        "tuning_best": None if not tuning else tuning.get("best"),
+        "gold_budget": None if not budget else budget.get("summary"),
+        "disagreements": disagreements,
+    }
 
 
 # Mount static files at the end to prevent route conflicts

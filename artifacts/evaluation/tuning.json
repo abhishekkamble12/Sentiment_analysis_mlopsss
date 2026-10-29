@@ -1,0 +1,188 @@
+{
+  "selection_metric": "val_macro_f1",
+  "n_train": 111707,
+  "n_val": 15959,
+  "seed": 42,
+  "max_features": 15000,
+  "best": {
+    "LogisticRegression": {
+      "params": {
+        "C": 4.0,
+        "max_iter": 1000
+      },
+      "val_macro_f1": 0.9244074224359574
+    },
+    "LinearSVC": {
+      "params": {
+        "C": 1.0
+      },
+      "val_macro_f1": 0.9337137320888372
+    },
+    "MultinomialNB": {
+      "params": {
+        "alpha": 0.01
+      },
+      "val_macro_f1": 0.7385085172614314
+    },
+    "RidgeClassifier": {
+      "params": {
+        "alpha": 1.0
+      },
+      "val_macro_f1": 0.8982099264961373
+    }
+  },
+  "trials": {
+    "LogisticRegression": [
+      {
+        "params": {
+          "C": 1.0,
+          "max_iter": 1000
+        },
+        "val_macro_f1": 0.9016333017987477,
+        "val_accuracy": 0.9121498840779497,
+        "val_ece": 0.12404272946039946,
+        "fit_seconds": 10.3,
+        "converged": true
+      },
+      {
+        "params": {
+          "C": 4.0,
+          "max_iter": 1000
+        },
+        "val_macro_f1": 0.9244074224359574,
+        "val_accuracy": 0.9320759446080582,
+        "val_ece": 0.07074239837827988,
+        "fit_seconds": 12.9,
+        "converged": true
+      },
+      {
+        "params": {
+          "C": 16.0,
+          "max_iter": 1000
+        },
+        "val_macro_f1": 0.9235450544503684,
+        "val_accuracy": 0.9309480543893728,
+        "val_ece": 0.022466242075479263,
+        "fit_seconds": 16.2,
+        "converged": true
+      },
+      {
+        "params": {
+          "C": 64.0,
+          "max_iter": 1000
+        },
+        "val_macro_f1": 0.9090087887430135,
+        "val_accuracy": 0.9177893351713766,
+        "val_ece": 0.01837090103829971,
+        "fit_seconds": 19.5,
+        "converged": true
+      }
+    ],
+    "LinearSVC": [
+      {
+        "params": {
+          "C": 0.3
+        },
+        "val_macro_f1": 0.9214062716496336,
+        "val_accuracy": 0.9288175950874115,
+        "val_ece": 0.05094910663922497,
+        "fit_seconds": 13.2
+      },
+      {
+        "params": {
+          "C": 1.0
+        },
+        "val_macro_f1": 0.9337137320888372,
+        "val_accuracy": 0.9402844789773795,
+        "val_ece": 0.054370920385979134,
+        "fit_seconds": 19.1
+      },
+      {
+        "params": {
+          "C": 3.0
+        },
+        "val_macro_f1": 0.9327274411614086,
+        "val_accuracy": 0.9395325521649226,
+        "val_ece": 0.06368644106104772,
+        "fit_seconds": 21.1
+      },
+      {
+        "params": {
+          "C": 10.0
+        },
+        "val_macro_f1": 0.9229971674794203,
+        "val_accuracy": 0.9305094304154395,
+        "val_ece": 0.08184502833918932,
+        "fit_seconds": 25.9
+      }
+    ],
+    "MultinomialNB": [
+      {
+        "params": {
+          "alpha": 0.3
+        },
+        "val_macro_f1": 0.7335558929748652,
+        "val_accuracy": 0.7586314932013284,
+        "val_ece": 0.148354656679814,
+        "fit_seconds": 0.0
+      },
+      {
+        "params": {
+          "alpha": 0.1
+        },
+        "val_macro_f1": 0.7367024212282236,
+        "val_accuracy": 0.7613885581803371,
+        "val_ece": 0.1402127047725471,
+        "fit_seconds": 0.0
+      },
+      {
+        "params": {
+          "alpha": 0.03
+        },
+        "val_macro_f1": 0.7377162263374754,
+        "val_accuracy": 0.7625164483990226,
+        "val_ece": 0.13443598673718996,
+        "fit_seconds": 0.0
+      },
+      {
+        "params": {
+          "alpha": 0.01
+        },
+        "val_macro_f1": 0.7385085172614314,
+        "val_accuracy": 0.7633310357791842,
+        "val_ece": 0.13128273634722035,
+        "fit_seconds": 0.0
+      }
+    ],
+    "RidgeClassifier": [
+      {
+        "params": {
+          "alpha": 3.0
+        },
+        "val_macro_f1": 0.8928342158412477,
+        "val_accuracy": 0.9022495143806003,
+        "val_ece": 0.06067855439238557,
+        "fit_seconds": 4.2
+      },
+      {
+        "params": {
+          "alpha": 1.0
+        },
+        "val_macro_f1": 0.8982099264961373,
+        "val_accuracy": 0.9070117175261608,
+        "val_ece": 0.07194301170039762,
+        "fit_seconds": 5.7
+      },
+      {
+        "params": {
+          "alpha": 0.3
+        },
+        "val_macro_f1": 0.8892771995189027,
+        "val_accuracy": 0.8984898803183157,
+        "val_ece": 0.08126815962842833,
+        "fit_seconds": 7.6
+      }
+    ]
+  },
+  "note": "chosen on the validation split only; the test split was not read"
+}

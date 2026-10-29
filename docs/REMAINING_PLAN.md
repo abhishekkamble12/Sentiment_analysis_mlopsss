@@ -6,6 +6,22 @@ at a time, in order, and commit after each one.
 
 ---------------------------------------------------------------------------------------------------------
 
+## Status update (supersedes section 3 where they differ)
+
+The code for WP1 to WP6 has been written, tested and committed (branches `feat/tuning-significance`,
+`feat/gold-tooling`, `feat/experiments`, `feat/demo-and-db`). Done and measured: tuning (LR C=4, LinearSVC C=1,
+NB alpha=0.01, Ridge alpha=1), final silver table, comparisons, 5-seed study (seed 42 reproduces the committed
+test fingerprint), retrained served models (LinearSVC selected). What remains needs a human or resources:
+
+1. Review `docs/annotation_guidelines.md`, run the pilot, have 2 to 3 people annotate, then sample, adjudicate,
+   freeze (commands in README "Research workflow").
+2. With the frozen gold set: gold evaluation, gold budget, confident learning, error sample, behavioural-case
+   review (WP4 code exists; run it and record outputs).
+3. GPU: `models/finetune.py` on the full split (3 seeds per model; verify model ids first). Key: `llm_eval.py`.
+4. Docker / Postgres verification (WP5 steps 2 and 3), pushing branches, venue search, paper (WP7).
+
+Treat any WP item below as "verify it still holds" rather than "build it".
+
 ## 0. Read this first: the rules that override everything else
 
 1. **Never invent results.** A number, a table cell, a citation, a DOI or a "finding" must come from a command

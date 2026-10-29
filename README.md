@@ -96,6 +96,42 @@ It writes `results.csv` / `results.json` (rebuilt from scratch each run) with ac
 how many test texts also occur in the training file. Baselines: majority class, TextBlob, VADER.
 **Read TextBlob's score as a check on the labels, not as a competitor**: it generated them.
 
+Current silver results (`artifacts/evaluation/results.csv`, 31,917 test tweets, 0% train/test text overlap,
+hyperparameters tuned on the validation split, see `tuning.json`):
+
+| Model | Macro-F1 [95% CI] |
+|---|---|
+| TextBlob (label source) | 0.9997 [0.9994, 0.9998] |
+| LinearSVC (served) | 0.9347 [0.9319, 0.9372] |
+| LogisticRegression | 0.9262 [0.9231, 0.9288] |
+| RidgeClassifier | 0.9014 [0.8981, 0.9046] |
+| MultinomialNB | 0.7448 [0.7396, 0.7495] |
+| VADER | 0.5518 [0.5463, 0.5568] |
+| Majority | 0.2053 [0.2035, 0.2069] |
+
+Over 5 different random splits (`seed_study.csv`) the standard deviation of macro-F1 is 0.002 to 0.003 for
+every trained model, so gaps larger than about 0.01 are not split noise. `comparisons.csv` has paired-bootstrap
+and McNemar tests (Holm-adjusted) for every pair; the bootstrap p-values are floored at 1/1001, so their
+Holm-adjusted floor is 0.015. These are **silver** results: agreement with TextBlob, not with people. The
+`/results` page shows them next to the gold results once the human-labelled set exists.
+
+### Research workflow (gold set and experiments)
+
+```bash
+python -m tweet_sentiment_classifier.gold.sample --pilot                 # 1. pilot sample for annotators
+python -m tweet_sentiment_classifier.gold.agreement data/gold/ann_a.csv data/gold/ann_b.csv   # 2. alpha
+python -m tweet_sentiment_classifier.gold.sample --exclude data/gold/pilot_private.csv         # 3. full sample
+python -m tweet_sentiment_classifier.gold.adjudicate --primary data/gold/ann_a.csv data/gold/ann_b.csv --tiebreak data/gold/ann_c.csv
+python -m tweet_sentiment_classifier.gold.freeze                          # 4. gold_test / gold_train_pool
+python -m tweet_sentiment_classifier.evaluation.run --train artifacts/data_transformation/train.csv --test data/gold/gold_test.csv --out artifacts/evaluation/gold --label-source gold --weights-column sampling_weight
+python -m tweet_sentiment_classifier.experiments.gold_budget             # 5. experiments (see each module's --help)
+python -m tweet_sentiment_classifier.experiments.cleanlab_run --eval gold=data/gold/gold_test.csv
+python -m tweet_sentiment_classifier.experiments.report --gold artifacts/evaluation/gold/results.json --budget artifacts/experiments/gold_budget/results.json
+```
+
+Annotators follow `docs/annotation_guidelines.md` (draft; review it before the pilot). Fine-tuning
+(`models/finetune.py`) needs a GPU for the full training split; LLM evaluation needs `GROQ_API_KEY`.
+
 ## Tests
 
 ```bash

@@ -1,0 +1,27 @@
+{
+    "best_model_name": "LinearSVC",
+    "tier_1_fast_fallback": "LinearSVC",
+    "metrics": {
+        "model": "LinearSVC",
+        "n": 31917,
+        "accuracy": 0.9413792023059812,
+        "macro_f1": 0.9347482843595577,
+        "macro_f1_ci_low": 0.9318914331883308,
+        "macro_f1_ci_high": 0.9372451751025754,
+        "weighted_f1": 0.9409636788518293,
+        "kappa": 0.9083331908699558,
+        "ece": 0.05500877654110305,
+        "f1_negative": 0.8938992042440318,
+        "f1_neutral": 0.9625590027954724,
+        "f1_positive": 0.9477866460391688,
+        "latency_p50_ms": 6.415499999093299,
+        "latency_p95_ms": 9.246154999891582
+    },
+    "selected_from": "artifacts\\evaluation\\results.csv",
+    "run_id": "20261029-165708-f1df77",
+    "excluded_baselines": [
+        "Majority",
+        "TextBlob",
+        "VADER"
+    ]
+}

@@ -27,7 +27,7 @@
             </h1>
             
             <p class="mt-4 text-xl text-slate-400 max-w-3xl mx-auto mb-10 leading-relaxed">
-                Empower your decision-making with real-time public feedback intelligence, policy impact analysis, and predictive sentiment analytics driven by hybrid AI models.
+                Three-class tweet sentiment with a trained local model by default, optional LLM decisions that are always labelled as such, and evaluation that reports confidence intervals and the limits of the training labels.
             </p>
             
             <div class="flex flex-col sm:flex-row justify-center items-center gap-4">
@@ -49,7 +49,7 @@
     <section class="max-w-7xl mx-auto px-4">
         <div class="text-center mb-12">
             <h2 class="text-3xl font-bold text-white mb-4">Tiered Inference Architecture</h2>
-            <p class="text-slate-400">Sub-100ms latency via local DistilBERT with Gemma LLM Fallback.</p>
+            <p class="text-slate-400">A local TF-IDF model decides by default; an LLM is used only in llm or hybrid mode, and every response names the model that decided. Measured per-text latency is on the Model Tracking page.</p>
         </div>
 
         <div class="glass-card p-8 relative overflow-hidden">
@@ -94,7 +94,7 @@
                         <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                     </div>
                     <h3 class="mt-4 font-semibold text-white">Refinement / Fallback</h3>
-                    <p class="text-xs text-slate-500 mt-1">DistilBERT &amp; Gemma LLM</p>
+                    <p class="text-xs text-slate-500 mt-1">fine-tuned transformer (vote) &amp; optional LLM</p>
                 </div>
                 
             </div>
@@ -109,8 +109,8 @@
                 <div class="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-4 border border-indigo-500/20 group-hover:bg-indigo-500 group-hover:text-white transition-all">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                 </div>
-                <h4 class="text-lg font-bold text-white mb-2">Real-time Analytics</h4>
-                <p class="text-slate-400 text-sm">Instantly process public feedback and view dynamic dashboards with latencies tracked at every tier.</p>
+                <h4 class="text-lg font-bold text-white mb-2">Logged Analytics</h4>
+                <p class="text-slate-400 text-sm">Every prediction is logged with the model that made it, its latency and confidence; dashboards read those logs.</p>
             </div>
 
             <div class="glass-card p-6 group cursor-default hover:border-cyan-500/50">
@@ -126,7 +126,7 @@
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                 </div>
                 <h4 class="text-lg font-bold text-white mb-2">AI-Generated Reports</h4>
-                <p class="text-slate-400 text-sm">Transform unstructured text into policy insights and summaries leveraging LangChain and Groq.</p>
+                <p class="text-slate-400 text-sm">Classify web-search snippets about a query and summarise them with an LLM (needs a Groq key); sources are disclosed.</p>
             </div>
 
         </div>
@@ -134,7 +134,7 @@
 
     <!-- MODEL STACK SECTION -->
     <section class="max-w-7xl mx-auto px-4 mt-16 text-center border-t border-slate-800 pt-12">
-        <p class="text-sm font-medium text-slate-500 mb-8 uppercase tracking-widest">Powered By Enterprise Tech Stack</p>
+        <p class="text-sm font-medium text-slate-500 mb-8 uppercase tracking-widest">Built with</p>
         <div class="flex flex-wrap justify-center gap-6 opacity-70 hover:opacity-100 transition-opacity duration-500">
             <span class="px-4 py-2 bg-slate-900 rounded-lg border border-slate-700 text-slate-300 font-semibold text-sm">LinearSVC</span>
             <span class="px-4 py-2 bg-slate-900 rounded-lg border border-slate-700 text-slate-300 font-semibold text-sm">DistilBERT</span>
