@@ -43,13 +43,20 @@ Work in progress: see *Known limitations* before quoting any number from this re
 | Mode | Behaviour |
 |---|---|
 | `local` | The trained scikit-learn model decides. No external API is called. |
-| `llm` | An LLM (Hugging Face, then Groq) decides; if both fail the local model answers. |
+| `llm` | An LLM (Groq, then Hugging Face) decides; if both fail the local model answers. |
 | `hybrid` | The local model decides unless its confidence is below `HYBRID_CONFIDENCE_THRESHOLD` (0.75), then the LLM decides. |
 
 Every response reports `decision_source` (for example `local:logisticregression` or
-`llm:groq/llama-3.1-8b-instant`), the vote of each model that ran, and any `warnings`. LLM decisions have
+`llm:groq/qwen/qwen3.8-27b`), the vote of each model that ran, and any `warnings`. LLM decisions have
 no confidence (`null`). The optional transformer tier (`artifacts/model_trainer/model_DistilBERT`) is loaded
-only if its `config.json` declares exactly 3 labels; it contributes a vote but does not decide.
+only if its `config.json` declares exactly 3 labels (negative, neutral, positive in that order); when loaded it
+decides as `local:transformer` and the scikit-learn model becomes the fallback. To use the pretrained
+human-labelled tweet model (the shipped TF-IDF models learned lexicon-generated labels, so their confidence is
+overstated):
+
+    python -c "from huggingface_hub import snapshot_download as s; s('cardiffnlp/twitter-roberta-base-sentiment-latest', local_dir='artifacts/model_trainer/model_DistilBERT')"
+
+then set `INFERENCE_MODE=hybrid` so Groq decides the posts the transformer is unsure about.
 
 When the linear local model decides, `contributions` lists the terms that pushed toward and against the
 predicted label, with their character spans for highlighting (`null` for non-linear models and LLM

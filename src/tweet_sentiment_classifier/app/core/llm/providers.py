@@ -15,7 +15,7 @@ logger = logging.getLogger("api")
 GROQ_URL = "https://api.groq.com/openai/v1"
 OPENAI_URL = "https://api.openai.com/v1"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-DEFAULT_MODELS = {"groq": "llama-3.1-8b-instant", "anthropic": "claude-haiku-5-5"}  # openai: set LLM_MODEL
+DEFAULT_MODELS = {"groq": "qwen/qwen3.8-27b", "anthropic": "claude-haiku-5-5"}  # openai: set LLM_MODEL
 
 
 class LLMError(RuntimeError):

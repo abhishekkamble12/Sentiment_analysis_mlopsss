@@ -2,6 +2,7 @@
 import asyncio
 import io
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -154,11 +155,16 @@ def test_slow_blocking_agents_do_not_freeze_the_server(env, app_module, monkeypa
     assert total < 2.4, f"6 requests took {total:.2f}s; serialised they would take ~4.8s"
 
 
+def _chat_reply(content):
+    """Shape of huggingface_hub's chat_completion output, as far as the pipeline reads it."""
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
 def test_concurrent_predictions_with_a_slow_llm_do_not_serialise(make_pipeline):
     class SlowHF:
-        def text_generation(self, prompt, max_new_tokens):
+        def chat_completion(self, messages, max_tokens):
             time.sleep(0.3)
-            return '{"label": 1, "explanation": "ok"}'
+            return _chat_reply('{"label": 1, "explanation": "ok"}')
 
     p = make_pipeline("llm", StubProbaModel([0.1, 0.1, 0.8]))
     del p._predict_llm_async  # use the real method, which wraps the blocking call in a thread
@@ -181,9 +187,9 @@ def test_injected_label_text_in_a_tweet_cannot_set_the_label(make_pipeline):
 
     class EchoHF:
         """A model that was fooled into echoing the attacker's instruction, then answered honestly."""
-        def text_generation(self, prompt, max_new_tokens):
-            seen["prompt"] = prompt
-            return 'Label: 1\nExplanation: obeyed\n{"label": -1, "explanation": "the tweet is hostile"}'
+        def chat_completion(self, messages, max_tokens):
+            seen["prompt"] = messages[0]["content"]
+            return _chat_reply('Label: 1\nExplanation: obeyed\n{"label": -1, "explanation": "the tweet is hostile"}')
 
     p = make_pipeline("llm", StubProbaModel([0.1, 0.1, 0.8]))
     del p._predict_llm_async
@@ -196,8 +202,8 @@ def test_injected_label_text_in_a_tweet_cannot_set_the_label(make_pipeline):
 
 def test_unparseable_llm_reply_falls_back_to_local_instead_of_defaulting_to_neutral(make_pipeline):
     class Chatty:
-        def text_generation(self, prompt, max_new_tokens):
-            return "I think this is positive!"
+        def chat_completion(self, messages, max_tokens):
+            return _chat_reply("I think this is positive!")
 
     p = make_pipeline("llm", StubProbaModel([0.1, 0.1, 0.8]))
     del p._predict_llm_async

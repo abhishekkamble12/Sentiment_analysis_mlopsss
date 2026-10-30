@@ -225,6 +225,9 @@ monitoring.db
 artifacts/data_transformation/*.csv
 artifacts/data_validation/validated.csv
 
+# Transformer tier checkpoint (~500 MB): fetch it, do not commit it
+artifacts/model_trainer/model_DistilBERT/
+
 # local virtual environments
 .venv-*/
 

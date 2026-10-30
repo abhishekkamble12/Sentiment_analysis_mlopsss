@@ -24,7 +24,7 @@ HF_API_TOKEN = settings.HF_API_TOKEN or settings.HF_TOKEN or os.environ.get("HF_
 
 INFERENCE_MODES = ("local", "llm", "hybrid")
 HF_LLM_ID = "google/gemma-4-31b-it"
-GROQ_LLM_ID = "llama-3.1-8b-instant"
+GROQ_LLM_ID = "qwen/qwen3.8-27b"
 SENTIMENT_MAP = {-1: "negative", 0: "neutral", 1: "positive"}
 
 def transformer_num_labels(model_dir: Path) -> int | None:
@@ -152,9 +152,7 @@ class PredictionPipeline:
         """
         prompt = build_sentiment_prompt(text)
 
-        candidates = []  # (source, callable returning text)
-        if self.hf_client:
-            candidates.append((f"llm:hf/{HF_LLM_ID}", lambda: self.hf_client.text_generation(prompt, max_new_tokens=100)))
+        candidates = []  # (source, callable returning text); Groq first, Hugging Face is the fallback
         if settings.GROQ_API_KEY:
             def _groq():
                 from langchain_groq import ChatGroq
@@ -162,6 +160,10 @@ class PredictionPipeline:
                 llm = ChatGroq(model_name=GROQ_LLM_ID, api_key=settings.GROQ_API_KEY, temperature=0.1)
                 return llm.invoke([HumanMessage(content=prompt)]).content
             candidates.append((f"llm:groq/{GROQ_LLM_ID}", _groq))
+        if self.hf_client:
+            # chat API: the inference providers serve this model as "conversational" only, not text-generation
+            candidates.append((f"llm:hf/{HF_LLM_ID}", lambda: self.hf_client.chat_completion(
+                [{"role": "user", "content": prompt}], max_tokens=100).choices[0].message.content))
 
         for source, call in candidates:
             try:
@@ -221,9 +223,8 @@ class PredictionPipeline:
             local_decision = (fast_source, label, conf)
         if local["distilbert"] is not None:
             label, conf = local["distilbert"]
-            votes["local:distilbert"] = {"label": SENTIMENT_MAP.get(label, "neutral"), "confidence": round(conf, 4)}
-            if local_decision is None:
-                local_decision = ("local:distilbert", label, conf)
+            votes["local:transformer"] = {"label": SENTIMENT_MAP.get(label, "neutral"), "confidence": round(conf, 4)}
+            local_decision = ("local:transformer", label, conf)  # the transformer decides; the fast model is the fallback
 
         # 2. LLM, only when the mode asks for it
         llm_attempted = False

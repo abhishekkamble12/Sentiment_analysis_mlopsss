@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 0  # per client, read requests (0 = off)
     RATE_LIMIT_WRITE_PER_MINUTE: int = 0  # per client, POST/PUT/DELETE requests (0 = off)
     TRUST_PROXY: bool = False  # true only behind a proxy you control: the client is the first X-Forwarded-For entry
+    CORS_ORIGINS: str = ""  # comma-separated extra origins, e.g. the Vercel frontend https://my-app.vercel.app
     METRICS_TOKEN: str = ""  # when set, /metrics needs "Authorization: Bearer <token>"
     RSS_FEEDS: str = ""  # comma-separated https feed URLs, filtered by each topic's query
 

@@ -36,10 +36,18 @@ COPY --from=frontend /frontend/dist /app/frontend/dist
 # Install the project as a package
 RUN pip install .
 
+# Optional transformer tier (the deciding local model). Leave empty on hosts with less than ~2 GB RAM;
+# e.g. TRANSFORMER_MODEL=cardiffnlp/twitter-roberta-base-sentiment-latest
+ARG TRANSFORMER_MODEL=""
+RUN if [ -n "$TRANSFORMER_MODEL" ]; then python -c "from huggingface_hub import snapshot_download as s; \
+s('$TRANSFORMER_MODEL', local_dir='artifacts/model_trainer/model_DistilBERT', \
+allow_patterns=['*.json', '*.txt', 'pytorch_model.bin', '*.safetensors'])"; fi
+
 # Expose API port
 EXPOSE 8000
 
 # Run uvicorn with optimized workers & threads
 # Apply database migrations, then serve. One uvicorn worker on purpose: the rate limiter and caches live in
 # process (see docs/DEPLOYMENT.md before scaling out).
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --limit-concurrency 50"]
+# PORT is set by hosts such as Render; 8000 otherwise
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --limit-concurrency 50"]

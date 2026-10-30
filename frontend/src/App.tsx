@@ -139,7 +139,8 @@ function ApiKeyField() {
       </label>
       <input
         type="password"
-        autoComplete="off"
+        autoComplete="new-password" // Chrome ignores "off" on password fields and fills in a saved login instead
+        spellCheck={false}
         value={value}
         onChange={(e) => { setValue(e.target.value); keyStore.set(e.target.value.trim()) }}
         placeholder="needed for protected actions"

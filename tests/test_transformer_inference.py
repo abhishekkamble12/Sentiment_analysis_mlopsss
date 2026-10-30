@@ -50,9 +50,9 @@ def test_predict_includes_the_transformer_vote(make_pipeline, tier2_dir):
     p._load_models()
     p.fast_model = StubProbaModel([0.1, 0.1, 0.8])  # _load_models found no fast-model pickle
     r = asyncio.run(p.predict("the day is good"))
-    assert r["decision_source"] == "local:logisticregression"
-    assert set(r["votes"]) == {"local:logisticregression", "local:distilbert"}
-    assert r["votes"]["local:distilbert"]["label"] in ("negative", "neutral", "positive")
+    assert r["decision_source"] == "local:transformer"
+    assert set(r["votes"]) == {"local:logisticregression", "local:transformer"}
+    assert r["votes"]["local:transformer"]["label"] in ("negative", "neutral", "positive")
 
 
 def test_two_class_checkpoint_is_refused_for_real(make_pipeline, tier2_dir):

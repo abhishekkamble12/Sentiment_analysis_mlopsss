@@ -71,7 +71,7 @@ class ReportAgent:
     def __init__(self):
         # Uses GROQ_API_KEY from settings
         self.llm = ChatGroq(
-            model_name="llama-3.1-8b-instant",
+            model_name="qwen/qwen3.8-27b",
             temperature=0.2,
             api_key=settings.GROQ_API_KEY
         )

@@ -71,7 +71,7 @@ def test_broken_fast_model_is_reported_not_masked_as_neutral(make_pipeline):
 def test_failed_fast_model_surfaces_warning_when_distilbert_answers(make_pipeline):
     p = make_pipeline("local", StubMarginModel(), distilbert=(1, 0.8))
     r = run(p)
-    assert r["decision_source"] == "local:distilbert"
+    assert r["decision_source"] == "local:transformer"
     assert "local_fast_failed" in r["warnings"]
 
 
