@@ -33,5 +33,18 @@ services:
       db:
         condition: service_healthy
 
+  worker:
+    build: .
+    container_name: tweet_sentiment_worker
+    restart: always
+    command: ["python", "-m", "tweet_sentiment_classifier.worker.main"]
+    env_file:
+      - .env.docker
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/tweet_sentiment
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgres_data:

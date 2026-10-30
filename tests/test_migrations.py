@@ -63,3 +63,24 @@ def test_existing_database_keeps_its_rows_and_accepts_null_confidence(db_path):
     con.commit()
     assert con.execute("select count(*) from prediction_logs").fetchone()[0] == 2
     assert {"monitoring_metrics", "label_corrections"} <= {r[0] for r in con.execute("select name from sqlite_master")}
+
+
+def test_topic_tables_are_created_on_fresh_and_existing_databases(db_path):
+    con = sqlite3.connect(db_path)
+    con.executescript(OLD_SCHEMA)
+    con.commit()
+    con.close()
+
+    upgrade()
+
+    con = sqlite3.connect(db_path)
+    tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
+    assert {"topics", "posts", "ingestion_runs"} <= tables
+    con.execute("INSERT INTO topics (name, query, sources) VALUES ('t', 'q', '[]')")
+    insert = ("INSERT INTO posts (topic_id, source, external_id, content_hash, text, prediction) "
+              "VALUES (1, 's', ?, ?, 'x', 'neutral')")
+    con.execute(insert, ("e1", "h1"))
+    with pytest.raises(sqlite3.IntegrityError):  # same source id twice for one topic
+        con.execute(insert, ("e1", "h2"))
+    with pytest.raises(sqlite3.IntegrityError):  # same content twice for one topic
+        con.execute(insert, ("e2", "h1"))

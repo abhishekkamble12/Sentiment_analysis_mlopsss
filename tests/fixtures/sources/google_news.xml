@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>"fuel prices" - Google News</title>
+<item><title>Fuel prices rise again - The Daily</title><link>https://news.example/a1</link>
+<guid isPermaLink="false">CBMi-a1</guid><pubDate>Wed, 28 Oct 2026 08:30:00 GMT</pubDate>
+<description>&lt;a href="https://news.example/a1"&gt;Fuel prices rise again&lt;/a&gt;&amp;nbsp;&amp;nbsp;&lt;font color="#6f6f6f"&gt;The Daily&lt;/font&gt;</description></item>
+<item><title>Commuters angry over petrol hike</title><link>https://news.example/a2</link>
+<guid isPermaLink="false">CBMi-a2</guid><pubDate>Wed, 28 Oct 2026 10:00:00 +0530</pubDate>
+<description>&lt;p&gt;Commuters say the &lt;b&gt;hike&lt;/b&gt; hurts &amp;amp; nobody listens.&lt;/p&gt;</description></item>
+<item><title>Item without a guid or date</title><link>https://news.example/a3</link><description></description></item>
+<item><title></title><description></description></item>
+</channel></rss>

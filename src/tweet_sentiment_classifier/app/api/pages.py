@@ -44,3 +44,8 @@ async def feedback_page(request: Request):
 @router.get("/results", response_class=HTMLResponse)
 async def results_page(request: Request):
     return templates.TemplateResponse(request, "pages/results.html")
+
+
+@router.get("/topics", response_class=HTMLResponse)
+async def topics_page(request: Request):
+    return templates.TemplateResponse(request, "pages/topics.html")

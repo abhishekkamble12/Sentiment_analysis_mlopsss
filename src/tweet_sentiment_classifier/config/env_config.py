@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     MAX_CSV_ROWS_LLM: int = 100
     MAX_TEXT_CHARS: int = 2000
     MAX_QUERY_CHARS: int = 200
+    # Topic monitoring. /ingest endpoints are disabled until INGEST_TOKEN is set. In llm/hybrid mode every
+    # classified post can cost an LLM call, so MAX_POSTS_PER_RUN is also the per-source LLM cap.
+    INGEST_TOKEN: str = ""
+    INGEST_INTERVAL_MIN: int = 30
+    MAX_POSTS_PER_RUN: int = 100
+    MAX_TOPICS: int = 20
+    POST_RETENTION_DAYS: int = 90
+    RSS_FEEDS: str = ""  # comma-separated https feed URLs, filtered by each topic's query
 
     class Config:
         env_file = ".env"

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, JSON
+from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, JSON, ForeignKey, UniqueConstraint
 from datetime import datetime
 from tweet_sentiment_classifier.config.database import Base
 
@@ -48,3 +48,48 @@ class LabelCorrection(Base):
     decision_source = Column(String, nullable=True)
     reviewed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Topic(Base):
+    """Something to monitor (a policy, brand, person or event) and where to look for posts about it."""
+    __tablename__ = "topics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    query = Column(String, nullable=False)
+    sources = Column(JSON, nullable=False)  # list of source names, e.g. ["google_news"]
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Post(Base):
+    """One collected public post, already classified. Unique per topic by source id and by normalised content."""
+    __tablename__ = "posts"
+    __table_args__ = (UniqueConstraint("topic_id", "external_id"), UniqueConstraint("topic_id", "content_hash"))
+
+    id = Column(Integer, primary_key=True, index=True)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
+    source = Column(String, nullable=False)
+    external_id = Column(String, nullable=False)
+    content_hash = Column(String, nullable=False)
+    url = Column(String, nullable=True)
+    text = Column(String, nullable=False)
+    published_at = Column(DateTime, nullable=True)
+    fetched_at = Column(DateTime, default=datetime.utcnow, index=True)
+    prediction = Column(String, nullable=False)
+    confidence = Column(Float, nullable=True)
+    decision_source = Column(String, nullable=True)
+
+
+class IngestionRun(Base):
+    __tablename__ = "ingestion_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
+    source = Column(String, nullable=False)
+    started_at = Column(DateTime, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    fetched = Column(Integer, default=0, nullable=False)
+    new = Column(Integer, default=0, nullable=False)
+    error = Column(String, nullable=True)
+
