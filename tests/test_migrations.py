@@ -99,3 +99,17 @@ def test_alerts_table_is_created_on_an_existing_database(db_path):
     assert {"topic_id", "kind", "window_hours", "baseline", "observed", "p_value", "message",
             "acknowledged", "created_at"} <= cols
 
+
+def test_llm_calls_and_insights_tables_are_created_on_an_existing_database(db_path):
+    con = sqlite3.connect(db_path)
+    con.executescript(OLD_SCHEMA)
+    con.commit()
+    con.close()
+
+    upgrade()
+
+    con = sqlite3.connect(db_path)
+    assert {"key", "provider", "model", "prompt_version", "tokens_in", "tokens_out", "ok", "response",
+            "created_at"} <= {r[1] for r in con.execute("pragma table_info(llm_calls)")}
+    assert {"topic_id", "kind", "day", "payload", "created_at"} <= {r[1] for r in con.execute("pragma table_info(insights)")}
+

@@ -12,8 +12,9 @@ import logging
 import time
 
 from tweet_sentiment_classifier.app.container import Container
-from tweet_sentiment_classifier.app.services import ingestion_service
+from tweet_sentiment_classifier.app.services import ingestion_service, insight_service
 from tweet_sentiment_classifier.config.database import Base, SessionLocal, engine
+from tweet_sentiment_classifier.entity.models import Topic
 
 logger = logging.getLogger("worker")
 
@@ -25,6 +26,14 @@ async def run_once(c) -> None:
             logger.info(f"topic '{topic}': " + ", ".join(
                 f"{r['source']} fetched={r['fetched']} new={r['new']}" + (f" ERROR {r['error']}" if r["error"] else "")
                 for r in runs))
+        for topic in db.query(Topic).filter(Topic.active.is_(True)).all():
+            try:
+                done = insight_service.refresh_topic(db, topic, c.llm, c.settings)
+                if done["themes"] != "skipped":
+                    logger.info(f"topic '{topic.name}' insights: {done}")
+            except Exception:  # one topic's insight failure must not stop the others or the purge
+                db.rollback()
+                logger.exception(f"insights failed for topic '{topic.name}'")
         purged = ingestion_service.purge_old_posts(db, c.settings.POST_RETENTION_DAYS)
         if purged:
             logger.info(f"purged {purged} posts older than {c.settings.POST_RETENTION_DAYS} days")

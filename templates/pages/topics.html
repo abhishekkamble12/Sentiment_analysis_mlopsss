@@ -83,6 +83,34 @@
                 </div>
             </div>
         </div>
+        <div class="glass-card p-4 lg:col-span-3" x-show="current && insights" style="display:none;">
+            <div class="flex items-center justify-between mb-3">
+                <p class="text-sm text-white font-medium">Themes and daily note</p>
+                <p class="text-xs text-slate-500" x-text="insights && insights.llm.configured ? 'named by ' + insights.llm.provider + ' / ' + insights.llm.model : 'LLM not configured: themes are labelled by their top words'"></p>
+            </div>
+            <template x-if="insights && insights.digest">
+                <div class="mb-4 p-3 rounded-lg border border-indigo-500/30 bg-indigo-500/5">
+                    <p class="text-sm text-slate-200" x-text="insights.digest.summary"></p>
+                    <ul class="mt-2 list-disc list-inside text-xs text-slate-400">
+                        <template x-for="ch in insights.digest.changes"><li x-text="ch"></li></template>
+                    </ul>
+                </div>
+            </template>
+            <p x-show="insights && !insights.themes" class="text-sm text-slate-500 italic">No themes yet. They need at least 20 posts in the last 3 days.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <template x-for="t in (insights && insights.themes ? insights.themes.themes : [])" :key="t.post_ids[0]">
+                    <div class="p-3 rounded-lg border border-slate-800">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-white font-medium" x-text="t.label"></p>
+                            <span class="text-xs capitalize" :class="{'text-emerald-400': t.sentiment === 'positive', 'text-rose-400': t.sentiment === 'negative', 'text-slate-300': t.sentiment === 'neutral', 'text-amber-400': t.sentiment === 'uncertain'}"
+                                  x-text="t.sentiment + ' · ' + (t.share * 100).toFixed(0) + '% of posts'"></span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-1" x-text="t.summary" x-show="t.summary"></p>
+                        <template x-for="q in t.quotes"><p class="text-xs text-slate-500 italic mt-1" x-text="'“' + q + '”'"></p></template>
+                    </div>
+                </template>
+            </div>
+        </div>
         <div class="glass-card p-4 lg:col-span-2">
             <div class="flex items-center justify-between mb-3">
                 <p class="text-sm text-white font-medium" x-text="current ? current.name : 'Select a topic'"></p>
@@ -120,7 +148,7 @@
 <script>
 function topicsApp() {
     return {
-        topics: [], current: null, posts: [], alerts: [], drift: null, trend: [], sentiment: '', busy: false, error: '',
+        topics: [], current: null, posts: [], alerts: [], drift: null, trend: [], insights: null, sentiment: '', busy: false, error: '',
         form: { name: '', query: '' },
         async load() {
             const r = await fetch('/api/v1/topics');
@@ -148,6 +176,7 @@ function topicsApp() {
             this.alerts = (await a.json()).alerts;
             this.drift = await d.json();
             this.trend = (await t.json()).points;
+            this.insights = await (await fetch(base + '/insights')).json();
         },
         async ack(a) {
             await fetch(`/api/v1/alerts/${a.id}/ack`, { method: 'POST' });

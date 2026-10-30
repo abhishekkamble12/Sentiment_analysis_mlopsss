@@ -6,6 +6,8 @@ One object, created at startup and kept on `app.state.container`; handlers recei
 import logging
 
 from tweet_sentiment_classifier.app.core.cache import TTLCache
+from tweet_sentiment_classifier.app.core.llm.client import LLMClient
+from tweet_sentiment_classifier.app.core.llm.providers import build_provider
 from tweet_sentiment_classifier.app.sources.rss import build_sources
 from tweet_sentiment_classifier.config.env_config import get_settings
 
@@ -31,6 +33,7 @@ class Container:
         self.predict_cache = TTLCache(ttl_seconds=3600, max_size=1000)
         self.search_analysis_cache = TTLCache(ttl_seconds=3600, max_size=500)
         self.sources = build_sources(self.settings.RSS_FEEDS)  # tests replace these with fakes
+        self.llm = LLMClient(build_provider(self.settings), self.settings.LLM_DAILY_TOKEN_BUDGET)  # tests swap it
         self.app = None  # set by create_app
 
     @classmethod

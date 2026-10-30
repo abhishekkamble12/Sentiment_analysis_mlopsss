@@ -109,3 +109,31 @@ class Alert(Base):
     acknowledged = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
+
+class LlmCall(Base):
+    """One LLM request: the cache (same key, ok=True) and the token ledger behind the daily budget."""
+    __tablename__ = "llm_calls"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, nullable=False, index=True)  # sha256 of provider, model, prompt version and input
+    provider = Column(String, nullable=False)
+    model = Column(String, nullable=False)
+    prompt_version = Column(String, nullable=False)
+    tokens_in = Column(Integer, default=0, nullable=False)
+    tokens_out = Column(Integer, default=0, nullable=False)
+    ok = Column(Boolean, default=False, nullable=False)
+    response = Column(JSON, nullable=True)  # the validated answer when ok
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Insight(Base):
+    """Generated understanding of a topic: its themes, or the daily "what changed" digest."""
+    __tablename__ = "insights"
+
+    id = Column(Integer, primary_key=True, index=True)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # themes | digest
+    day = Column(String, nullable=False, index=True)  # YYYY-MM-DD (UTC)
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

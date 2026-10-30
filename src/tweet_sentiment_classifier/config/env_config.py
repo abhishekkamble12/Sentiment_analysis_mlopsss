@@ -34,6 +34,17 @@ class Settings(BaseSettings):
     ALERT_P_VALUE: float = 0.01
     ALERT_COOLDOWN_HOURS: int = 24
     DRIFT_PSI_ALERT: float = 0.25  # the usual "significant shift" level for the population stability index
+    # LLM insights (themes, daily digest). Empty LLM_PROVIDER = groq when GROQ_API_KEY is set, else disabled;
+    # the themes still work without an LLM (labelled by their top words).
+    LLM_PROVIDER: str = ""  # groq | openai | anthropic
+    LLM_MODEL: str = ""  # groq/anthropic have defaults; openai needs it set
+    ANTHROPIC_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    LLM_DAILY_TOKEN_BUDGET: int = 200_000
+    LLM_TIMEOUT_SECONDS: int = 30
+    INSIGHT_INTERVAL_HOURS: int = 6
+    INSIGHT_MIN_POSTS: int = 20
+    THEME_WINDOW_HOURS: int = 72
     RSS_FEEDS: str = ""  # comma-separated https feed URLs, filtered by each topic's query
 
     class Config:
