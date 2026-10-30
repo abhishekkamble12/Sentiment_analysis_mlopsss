@@ -21,7 +21,16 @@ if DATABASE_URL.startswith("postgresql://"):
             pass
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+try:
+    engine = create_engine(DATABASE_URL, connect_args=connect_args)
+except ModuleNotFoundError as e:  # the driver for the configured database is not installed
+    scheme = DATABASE_URL.split("://")[0]  # never print the rest: it holds the password
+    raise RuntimeError(
+        f"DATABASE_URL uses '{scheme}' but its Python driver '{e.name}' is not installed. For local use point it at "
+        "SQLite: set DATABASE_URL=sqlite:///./monitoring.db (PowerShell: $env:DATABASE_URL = 'sqlite:///./monitoring.db', "
+        "or Remove-Item Env:DATABASE_URL to fall back to the value in .env). For Postgres install requirements/serve.txt. "
+        "A DATABASE_URL set in the terminal overrides the one in .env."
+    ) from None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
