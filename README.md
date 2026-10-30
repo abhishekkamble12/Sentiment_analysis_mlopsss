@@ -146,6 +146,12 @@ flowchart LR
 | Batch CSV Analysis | Upload a CSV with a `text` column → per-row results, sentiment distribution, row errors, and a downloadable results CSV. |
 | Model Lab | Real evaluation results: macro-F1 with CIs, accuracy, kappa, ECE, per-class F1, confusion matrices, latency, and pairwise comparisons. Silver vs gold clearly separated. |
 | Prediction History | Persisted predictions, searchable, filterable by sentiment and date, paginated. |
+| Topic Monitor | Add topics; per topic: posts per day, alerts (acknowledge), drift against the previous week, the collected posts (filter by label, paginated), themes and the daily note. "Collect now" and "Rebuild" need an API key. |
+| Ask the Agent | Ask a question or request a research report; shows each tool the agent used, then the answer with the posts it cites. Citations the agent could not back are removed and reported. Needs an API key. |
+| Annotation Queue | Posts the model was unsure about, most uncertain first; add a topic's unsure posts and download a Label Studio import file (text only, no model label). |
+
+The API key for the protected actions is typed into the sidebar field. It is kept in `sessionStorage` (cleared when the
+tab closes) and sent as `X-API-Key`. The field is hidden on narrow screens.
 
 ### API (JSON, for the frontend and any client)
 
@@ -215,6 +221,8 @@ cd frontend
 npm install
 npm run dev        # dev server at http://localhost:5173/app (proxies /api to :8000)
 npm run build      # production build -> frontend/dist (served by the backend at /app)
+npm run typecheck  # tsc
+npm test           # component tests (Vitest + Testing Library, API mocked)
 ```
 
 Run the backend (`python app.py`) and the frontend (`npm run dev`) together. Open

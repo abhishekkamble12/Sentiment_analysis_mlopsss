@@ -158,3 +158,121 @@ export interface ModelLab {
 export interface ApiError {
   detail: string
 }
+
+// ---- Topic monitoring, insights, agent, annotation (mirror /api/v1; see docs/IMPLEMENTATION_PLAN.md) ----
+
+export type PostSentiment = Sentiment | 'uncertain'
+
+export interface Topic {
+  id: number
+  name: string
+  query: string
+  sources: string[]
+  active: boolean
+  posts: number
+  last_ingested: string | null
+}
+
+export interface Post {
+  id: number
+  source: string
+  url: string | null
+  text: string
+  prediction: PostSentiment
+  confidence: number | null
+  decision_source: string | null
+  published_at: string | null
+}
+
+export interface PostsResponse {
+  total: number
+  page: number
+  limit: number
+  total_pages: number
+  posts: Post[]
+}
+
+export interface TrendPoint {
+  bucket: string
+  n: number
+  counts: Record<PostSentiment, number>
+  mean_confidence: number | null
+  by_source: Record<string, number>
+}
+
+export interface WindowStats {
+  n: number
+  counts: Record<PostSentiment, number>
+  mean_confidence: number | null
+  uncertain_share: number | null
+  oov_rate: number | null
+}
+
+export interface Drift {
+  window_hours: number
+  window: WindowStats
+  baseline: WindowStats & { days_covered: number }
+  psi: number | null
+}
+
+export interface Alert {
+  id: number
+  kind: string
+  message: string
+  baseline: number
+  observed: number
+  p_value: number | null
+  acknowledged: boolean
+  created_at: string
+}
+
+export interface Theme {
+  label: string
+  summary: string
+  quotes: string[]
+  sentiment: PostSentiment
+  share: number
+  n: number
+  llm: boolean
+  post_ids: number[]
+}
+
+export interface Insights {
+  themes: { themes: Theme[]; n_posts: number; window_hours: number; unclustered: number; budget_exhausted: boolean; created_at: string } | null
+  digest: { summary: string; changes: string[]; had_previous_day: boolean; created_at: string } | null
+  llm: { configured: boolean; provider: string | null; model: string | null }
+}
+
+export interface AgentSource {
+  id: number
+  text: string
+  sentiment: string
+  url: string | null
+  source: string
+}
+
+export interface AgentRun {
+  id: number
+  kind: 'report' | 'ask'
+  question: string
+  topic_id: number | null
+  status: 'running' | 'done' | 'failed' | 'incomplete' | 'limit_reached'
+  steps: { step: number; action: 'tool' | 'final'; tool?: string; args?: Record<string, unknown>; result?: string }[]
+  answer: { text: string; citations: number[]; removed_citations: number[]; sources: AgentSource[]; verified: boolean } | null
+  error: string | null
+  tokens_in: number
+  tokens_out: number
+  latency_ms: number | null
+  provider: string | null
+  model: string | null
+}
+
+export interface AnnotationItem {
+  id: number
+  post_id: number
+  topic_id: number
+  text: string
+  url: string | null
+  reason: 'uncertain' | 'low_confidence'
+  priority: number
+}

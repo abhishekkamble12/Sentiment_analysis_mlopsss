@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "axios": "1.7.4",
@@ -17,13 +18,17 @@
     "recharts": "2.12.7"
   },
   "devDependencies": {
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/react": "16.0.0",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "@vitejs/plugin-react": "4.3.1",
     "autoprefixer": "10.4.20",
+    "jsdom": "24.1.1",
     "postcss": "8.4.41",
     "tailwindcss": "3.4.10",
     "typescript": "5.5.4",
-    "vite": "5.4.2"
+    "vite": "5.4.2",
+    "vitest": "2.0.5"
   }
 }

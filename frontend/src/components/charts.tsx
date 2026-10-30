@@ -1,6 +1,8 @@
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   Cell,
   Pie,
   PieChart,
@@ -11,7 +13,7 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts'
-import type { Sentiment } from '../types'
+import type { Sentiment, TrendPoint } from '../types'
 import { SENTIMENT_META } from './ui'
 
 interface DonutDatum {
@@ -138,6 +140,39 @@ export function F1BarChart({ data }: { data: { model: string; macro_f1: number }
           </div>
         )
       })}
+    </div>
+  )
+}
+
+const TOPIC_SERIES: { key: 'positive' | 'neutral' | 'negative' | 'uncertain'; label: string; color: string }[] = [
+  { key: 'positive', label: 'Positive', color: SENTIMENT_META.positive.hex },
+  { key: 'neutral', label: 'Neutral', color: SENTIMENT_META.neutral.hex },
+  { key: 'negative', label: 'Negative', color: SENTIMENT_META.negative.hex },
+  { key: 'uncertain', label: 'Uncertain', color: '#fbbf24' },
+]
+
+/** Posts per day for a topic, stacked by the model's label. */
+export function TopicTrendChart({ points }: { points: TrendPoint[] }) {
+  if (!points.length) {
+    return <div className="h-[240px] flex items-center justify-center text-sm text-slate-500">No posts in this period</div>
+  }
+  const data = points.map((p) => ({ bucket: p.bucket.slice(5), ...p.counts }))
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+          <XAxis dataKey="bucket" stroke="#64748b" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis stroke="#64748b" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} />
+          <Tooltip
+            contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12, color: '#e2e8f0' }}
+          />
+          <Legend formatter={(v) => <span className="text-slate-300 text-xs">{v}</span>} iconType="circle" />
+          {TOPIC_SERIES.map((s) => (
+            <Bar key={s.key} dataKey={s.key} name={s.label} stackId="posts" fill={s.color} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   )
 }

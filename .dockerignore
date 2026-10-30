@@ -11,3 +11,5 @@ Kidney_diesease-classificiation
 *.db
 tests
 .env.docker
+frontend/node_modules
+frontend/dist

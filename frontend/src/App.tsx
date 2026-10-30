@@ -6,16 +6,23 @@ import {
   FlaskConical,
   History as HistoryIcon,
   Activity,
+  Bot,
   Github,
+  KeyRound,
+  Radar,
+  Tags,
 } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Predict from './pages/Predict'
 import CsvAnalysis from './pages/CsvAnalysis'
 import ModelLab from './pages/ModelLab'
 import History from './pages/History'
-import { api, errorMessage } from './api/client'
+import Topics from './pages/Topics'
+import Agent from './pages/Agent'
+import Annotate from './pages/Annotate'
+import { api, keyStore } from './api/client'
 
-type PageId = 'dashboard' | 'predict' | 'csv' | 'modellab' | 'history'
+type PageId = 'dashboard' | 'predict' | 'csv' | 'modellab' | 'history' | 'topics' | 'agent' | 'annotate'
 
 const NAV: { id: PageId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -23,6 +30,9 @@ const NAV: { id: PageId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'csv', label: 'Batch CSV Analysis', icon: FileSpreadsheet },
   { id: 'modellab', label: 'Model Lab', icon: FlaskConical },
   { id: 'history', label: 'Prediction History', icon: HistoryIcon },
+  { id: 'topics', label: 'Topic Monitor', icon: Radar },
+  { id: 'agent', label: 'Ask the Agent', icon: Bot },
+  { id: 'annotate', label: 'Annotation Queue', icon: Tags },
 ]
 
 export default function App() {
@@ -74,6 +84,8 @@ export default function App() {
           })}
         </nav>
 
+        <ApiKeyField />
+
         <div className="hidden md:flex items-center gap-2 px-5 py-4 border-t border-slate-800 text-xs">
           <span
             className={`w-2 h-2 rounded-full ${health === 'ok' ? 'bg-emerald-400' : health === 'down' ? 'bg-rose-400' : 'bg-amber-400 animate-pulse'
@@ -108,8 +120,31 @@ export default function App() {
           {page === 'csv' && <CsvAnalysis />}
           {page === 'modellab' && <ModelLab />}
           {page === 'history' && <History />}
+          {page === 'topics' && <Topics />}
+          {page === 'agent' && <Agent />}
+          {page === 'annotate' && <Annotate />}
         </div>
       </main>
+    </div>
+  )
+}
+
+/** The key for the protected actions (collect, rebuild, agent, topic writes). Kept in sessionStorage only. */
+function ApiKeyField() {
+  const [value, setValue] = useState(keyStore.get())
+  return (
+    <div className="hidden md:block px-4 pb-3">
+      <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
+        <KeyRound className="w-3.5 h-3.5" /> API key
+      </label>
+      <input
+        type="password"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => { setValue(e.target.value); keyStore.set(e.target.value.trim()) }}
+        placeholder="needed for protected actions"
+        className="input-base !py-2 !text-xs"
+      />
     </div>
   )
 }

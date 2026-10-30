@@ -151,3 +151,16 @@ export function fmtTime(ts: string | null): string {
     return ts
   }
 }
+
+/** Badge for a post label: the three sentiments plus "uncertain" (the model abstained). */
+export function PostBadge({ label }: { label: string }) {
+  if (label === 'uncertain') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md border bg-amber-500/10 text-amber-300 border-amber-500/30">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+        Uncertain
+      </span>
+    )
+  }
+  return <SentimentBadge sentiment={normaliseSentiment(label)} />
+}

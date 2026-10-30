@@ -1,3 +1,12 @@
+# --- Stage 1: build the React app (served by the API at /app) ---
+FROM node:22-slim AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2: the API ---
 FROM python:3.12-slim
 
 # Set environment variables to optimize Python & memory
@@ -22,6 +31,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy project files
 COPY . .
+COPY --from=frontend /frontend/dist /app/frontend/dist
 
 # Install the project as a package
 RUN pip install .
