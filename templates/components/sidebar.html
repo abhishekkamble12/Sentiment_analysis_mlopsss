@@ -81,6 +81,13 @@
             Topic Monitor
         </a>
 
+        <a href="/agent" class="flex items-center px-4 py-3 rounded-lg transition-all duration-200 group {% if request.url.path == '/agent' %}bg-purple-500/10 text-white font-medium border-l-4 border-purple-500{% else %}text-slate-400 hover:bg-slate-800/50 hover:text-white{% endif %}">
+            <svg class="w-5 h-5 mr-3 transition-colors duration-200 {% if request.url.path == '/agent' %}text-purple-400{% else %}text-slate-500 group-hover:text-purple-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+            </svg>
+            Ask the Agent
+        </a>
+
         <!-- System Monitoring & Telemetry -->
         <a href="/monitoring-dashboard" class="flex items-center px-4 py-3 rounded-lg transition-all duration-200 group {% if request.url.path == '/monitoring-dashboard' %}bg-rose-500/10 text-white font-medium border-l-4 border-rose-500{% else %}text-slate-400 hover:bg-slate-800/50 hover:text-white{% endif %}">
             <svg class="w-5 h-5 mr-3 transition-colors duration-200 {% if request.url.path == '/monitoring-dashboard' %}text-rose-400{% else %}text-slate-500 group-hover:text-rose-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -137,3 +137,38 @@ class Insight(Base):
     payload = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class AgentRun(Base):
+    """One agent session: the question, every step it took (the trace), its verified answer and what it cost."""
+    __tablename__ = "agent_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, nullable=False)  # report | ask
+    question = Column(String, nullable=False)
+    topic_id = Column(Integer, nullable=True, index=True)
+    status = Column(String, nullable=False)  # running | done | failed | incomplete | limit_reached
+    steps = Column(JSON, nullable=False)
+    answer = Column(JSON, nullable=True)
+    error = Column(String, nullable=True)
+    tokens_in = Column(Integer, default=0, nullable=False)
+    tokens_out = Column(Integer, default=0, nullable=False)
+    latency_ms = Column(Float, nullable=True)
+    provider = Column(String, nullable=True)
+    model = Column(String, nullable=True)
+    prompt_version = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class AnnotationItem(Base):
+    """A post worth a human label (the model was unsure). Candidates for annotation, never labels."""
+    __tablename__ = "annotation_queue"
+
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id"), nullable=False, unique=True)
+    topic_id = Column(Integer, nullable=False, index=True)
+    reason = Column(String, nullable=False)  # uncertain | low_confidence
+    priority = Column(Float, nullable=False)  # higher = less sure
+    status = Column(String, default="pending", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

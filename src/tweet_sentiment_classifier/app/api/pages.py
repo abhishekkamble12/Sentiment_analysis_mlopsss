@@ -49,3 +49,8 @@ async def results_page(request: Request):
 @router.get("/topics", response_class=HTMLResponse)
 async def topics_page(request: Request):
     return templates.TemplateResponse(request, "pages/topics.html")
+
+
+@router.get("/agent", response_class=HTMLResponse)
+async def agent_page(request: Request):
+    return templates.TemplateResponse(request, "pages/agent.html")

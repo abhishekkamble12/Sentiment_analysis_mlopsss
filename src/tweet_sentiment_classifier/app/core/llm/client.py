@@ -43,7 +43,8 @@ class LLMClient:
         return int(total or 0)
 
     def call_json(self, db: Session, *, prompt_version: str, system: str, user: str, model_cls: Type[M],
-                  max_tokens: int = 600, now: Optional[datetime] = None) -> Optional[M]:
+                  max_tokens: int = 600, now: Optional[datetime] = None,
+                  usage: Optional[dict] = None) -> Optional[M]:
         """A validated answer, or None when the provider is missing, fails twice or never returns valid JSON.
         Raises BudgetExceeded when today's token budget is used up (cached answers are still served)."""
         if self.provider is None:
@@ -70,6 +71,9 @@ class LLMClient:
                 db.commit()
                 continue
             row.tokens_in, row.tokens_out = reply.tokens_in, reply.tokens_out
+            if usage is not None:  # lets a caller (the agent) cap what one session spends
+                usage["in"] = usage.get("in", 0) + reply.tokens_in
+                usage["out"] = usage.get("out", 0) + reply.tokens_out
             parsed = extract_json_object(reply.text)
             try:
                 result = model_cls.model_validate(parsed)

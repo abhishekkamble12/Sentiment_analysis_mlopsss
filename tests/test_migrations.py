@@ -113,3 +113,18 @@ def test_llm_calls_and_insights_tables_are_created_on_an_existing_database(db_pa
             "created_at"} <= {r[1] for r in con.execute("pragma table_info(llm_calls)")}
     assert {"topic_id", "kind", "day", "payload", "created_at"} <= {r[1] for r in con.execute("pragma table_info(insights)")}
 
+
+def test_agent_runs_and_annotation_queue_tables_are_created_on_an_existing_database(db_path):
+    con = sqlite3.connect(db_path)
+    con.executescript(OLD_SCHEMA)
+    con.commit()
+    con.close()
+
+    upgrade()
+
+    con = sqlite3.connect(db_path)
+    assert {"kind", "question", "status", "steps", "answer", "tokens_in", "tokens_out", "latency_ms", "provider",
+            "model", "prompt_version"} <= {r[1] for r in con.execute("pragma table_info(agent_runs)")}
+    assert {"post_id", "topic_id", "reason", "priority", "status"} <= {
+        r[1] for r in con.execute("pragma table_info(annotation_queue)")}
+

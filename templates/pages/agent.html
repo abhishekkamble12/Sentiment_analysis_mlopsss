@@ -1,0 +1,101 @@
+<!-- templates/pages/agent.html -->
+{% extends "layouts/base.html" %}
+
+{% block title %}AI Analytics | Ask the Agent{% endblock %}
+{% block header_title %}Ask the Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6 pb-12" x-data="agentApp()" x-init="init()">
+
+    <div class="glass-card p-6">
+        <p class="text-sm text-slate-400 mb-4">
+            The agent answers from your stored posts using a fixed set of tools (search, trends, themes, alerts).
+            Every claim should cite a post; citations the agent could not back with a retrieved post are removed.
+            Sentiment labels are from a model trained on lexicon-labelled tweets: treat them as rough.
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <select x-model="kind" class="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                <option value="ask">Ask a question</option>
+                <option value="report">Research report</option>
+            </select>
+            <select x-model.number="topicId" class="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                <option :value="null">Any topic</option>
+                <template x-for="t in topics" :key="t.id"><option :value="t.id" x-text="t.name"></option></template>
+            </select>
+            <input x-model="token" type="password" placeholder="Ingest token" autocomplete="off"
+                   class="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+            <button @click="start()" :disabled="busy" class="btn-primary" x-text="busy ? 'Working…' : 'Run'"></button>
+        </div>
+        <input x-show="kind === 'ask'" x-model="question" maxlength="500" placeholder="e.g. Why did negativity rise this week?"
+               @keydown.enter="start()"
+               class="mt-3 w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+        <p x-show="error" x-text="error" class="mt-3 text-sm text-rose-400" style="display:none;"></p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" x-show="run" style="display:none;">
+        <div class="glass-card p-4">
+            <p class="text-xs text-slate-500 mb-2">What the agent did</p>
+            <template x-for="s in run ? run.steps : []" :key="s.step">
+                <div class="mb-2 text-xs">
+                    <p class="text-slate-200" x-text="s.step + '. ' + (s.action === 'final' ? 'wrote the answer' : s.tool + ' ' + JSON.stringify(s.args))"></p>
+                    <p class="text-slate-500 truncate" x-show="s.result" x-text="s.result"></p>
+                </div>
+            </template>
+            <p class="text-xs text-slate-500 mt-3" x-show="run"
+               x-text="run ? run.status + ' · ' + (run.tokens_in + run.tokens_out) + ' tokens' + (run.latency_ms ? ' · ' + (run.latency_ms / 1000).toFixed(1) + ' s' : '') : ''"></p>
+        </div>
+
+        <div class="glass-card p-4 lg:col-span-2">
+            <p x-show="run && run.error" class="text-sm text-rose-400" x-text="run && run.error"></p>
+            <template x-if="run && run.answer">
+                <div>
+                    <!-- the answer is model output built from scraped text: always rendered as text, never as HTML -->
+                    <p class="text-sm text-slate-200 whitespace-pre-wrap" x-text="run.answer.text"></p>
+                    <p x-show="!run.answer.verified" class="mt-3 text-xs text-amber-400">
+                        This answer cites no retrieved post, so it could not be checked against the data.
+                    </p>
+                    <p x-show="run.answer.removed_citations.length" class="mt-1 text-xs text-amber-400"
+                       x-text="'Removed citations with no matching retrieved post: ' + run.answer.removed_citations.join(', ')"></p>
+                    <p class="text-xs text-slate-500 mt-4 mb-1" x-show="run.answer.sources.length">Cited posts</p>
+                    <template x-for="s in run.answer.sources" :key="s.id">
+                        <div class="text-xs p-2 mb-1 rounded border border-slate-800">
+                            <span class="text-indigo-300" x-text="'[' + s.id + '] '"></span>
+                            <span class="text-slate-300" x-text="s.text"></span>
+                            <a x-show="s.url" :href="s.url" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:underline">source</a>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+
+<script>
+function agentApp() {
+    return {
+        topics: [], kind: 'ask', topicId: null, question: '', token: '', run: null, busy: false, error: '',
+        async init() { this.topics = (await (await fetch('/api/v1/topics')).json()).topics; },
+        async start() {
+            this.error = ''; this.run = null;
+            if (this.kind === 'report' && !this.topicId) { this.error = 'Pick a topic for a report.'; return; }
+            if (this.kind === 'ask' && !this.question.trim()) { this.error = 'Type a question.'; return; }
+            this.busy = true;
+            const r = await fetch('/api/v1/agent/runs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ingest-Token': this.token },
+                body: JSON.stringify({ kind: this.kind, question: this.question || null, topic_id: this.topicId }),
+            });
+            if (!r.ok) { this.error = (await r.json()).detail || 'Could not start the session'; this.busy = false; return; }
+            await this.poll((await r.json()).id);
+        },
+        async poll(id) {
+            for (;;) {
+                this.run = await (await fetch('/api/v1/agent/runs/' + id)).json();
+                if (this.run.status !== 'running') break;
+                await new Promise(res => setTimeout(res, 1500));
+            }
+            this.busy = false;
+        },
+    };
+}
+</script>
+{% endblock %}

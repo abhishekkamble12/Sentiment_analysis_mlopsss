@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     INSIGHT_INTERVAL_HOURS: int = 6
     INSIGHT_MIN_POSTS: int = 20
     THEME_WINDOW_HOURS: int = 72
+    # Agent runs (every run is capped on steps, tokens and time; the endpoints need INGEST_TOKEN)
+    AGENT_MAX_STEPS: int = 8
+    AGENT_MAX_TOKENS: int = 20_000
+    AGENT_TIMEOUT_SECONDS: int = 90
     RSS_FEEDS: str = ""  # comma-separated https feed URLs, filtered by each topic's query
 
     class Config:

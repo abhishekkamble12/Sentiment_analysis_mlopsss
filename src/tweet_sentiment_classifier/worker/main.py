@@ -12,7 +12,7 @@ import logging
 import time
 
 from tweet_sentiment_classifier.app.container import Container
-from tweet_sentiment_classifier.app.services import ingestion_service, insight_service
+from tweet_sentiment_classifier.app.services import annotation_service, ingestion_service, insight_service
 from tweet_sentiment_classifier.config.database import Base, SessionLocal, engine
 from tweet_sentiment_classifier.entity.models import Topic
 
@@ -29,6 +29,7 @@ async def run_once(c) -> None:
         for topic in db.query(Topic).filter(Topic.active.is_(True)).all():
             try:
                 done = insight_service.refresh_topic(db, topic, c.llm, c.settings)
+                annotation_service.queue_uncertain(db, topic.id)
                 if done["themes"] != "skipped":
                     logger.info(f"topic '{topic.name}' insights: {done}")
             except Exception:  # one topic's insight failure must not stop the others or the purge
