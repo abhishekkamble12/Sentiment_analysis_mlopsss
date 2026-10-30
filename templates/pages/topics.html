@@ -40,6 +40,49 @@
             </template>
         </div>
 
+        <div class="glass-card p-4 lg:col-span-3" x-show="current" style="display:none;">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div>
+                    <p class="text-xs text-slate-500 mb-2">Alerts</p>
+                    <p x-show="!alerts.length" class="text-sm text-slate-500 italic">No alerts. They need at least 20 posts in the last day and in the week before.</p>
+                    <template x-for="a in alerts" :key="a.id">
+                        <div class="p-2 mb-2 rounded-lg border text-xs" :class="a.acknowledged ? 'border-slate-800 text-slate-500' : 'border-amber-500/40 text-amber-200'">
+                            <p x-text="a.message"></p>
+                            <button x-show="!a.acknowledged" @click="ack(a)" class="mt-1 underline">Acknowledge</button>
+                        </div>
+                    </template>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500 mb-2">Drift (last <span x-text="drift ? drift.window_hours : ''"></span> h vs the week before)</p>
+                    <template x-if="drift">
+                        <dl class="text-sm text-slate-300 space-y-1">
+                            <div class="flex justify-between"><dt>Posts</dt><dd x-text="drift.window.n + ' vs ' + drift.baseline.n"></dd></div>
+                            <div class="flex justify-between"><dt>Unknown-word rate</dt><dd x-text="pct(drift.window.oov_rate) + ' vs ' + pct(drift.baseline.oov_rate)"></dd></div>
+                            <div class="flex justify-between"><dt>Mean confidence</dt><dd x-text="pct(drift.window.mean_confidence) + ' vs ' + pct(drift.baseline.mean_confidence)"></dd></div>
+                            <div class="flex justify-between"><dt>Uncertain posts</dt><dd x-text="pct(drift.window.uncertain_share) + ' vs ' + pct(drift.baseline.uncertain_share)"></dd></div>
+                            <div class="flex justify-between"><dt>Class-mix shift (PSI)</dt><dd x-text="drift.psi == null ? 'n/a' : drift.psi.toFixed(2)"></dd></div>
+                            <p class="text-xs text-slate-500 pt-1">Unknown words = words outside the model's vocabulary: a high value means this topic is far from the tweets it was trained on. PSI above 0.25 is a large shift.</p>
+                        </dl>
+                    </template>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500 mb-2">Posts per day (positive / neutral / negative / uncertain)</p>
+                    <p x-show="!trend.length" class="text-sm text-slate-500 italic">No data yet.</p>
+                    <template x-for="d in trend" :key="d.bucket">
+                        <div class="flex items-center gap-2 text-xs mb-1" :title="d.bucket + ': ' + d.n + ' posts'">
+                            <span class="w-20 text-slate-400" x-text="d.bucket.slice(5)"></span>
+                            <div class="flex h-3 flex-1 rounded overflow-hidden bg-slate-800">
+                                <div class="bg-emerald-500" :style="'width:' + d.shares.positive.share * 100 + '%'"></div>
+                                <div class="bg-slate-400" :style="'width:' + d.shares.neutral.share * 100 + '%'"></div>
+                                <div class="bg-rose-500" :style="'width:' + d.shares.negative.share * 100 + '%'"></div>
+                                <div class="bg-amber-400" :style="'width:' + d.shares.uncertain.share * 100 + '%'"></div>
+                            </div>
+                            <span class="w-8 text-right text-slate-400" x-text="d.n"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
         <div class="glass-card p-4 lg:col-span-2">
             <div class="flex items-center justify-between mb-3">
                 <p class="text-sm text-white font-medium" x-text="current ? current.name : 'Select a topic'"></p>
@@ -77,7 +120,7 @@
 <script>
 function topicsApp() {
     return {
-        topics: [], current: null, posts: [], sentiment: '', busy: false, error: '',
+        topics: [], current: null, posts: [], alerts: [], drift: null, trend: [], sentiment: '', busy: false, error: '',
         form: { name: '', query: '' },
         async load() {
             const r = await fetch('/api/v1/topics');
@@ -94,7 +137,22 @@ function topicsApp() {
             else this.error = (await r.json()).detail || 'Could not add the topic';
             this.busy = false;
         },
-        async select(t) { this.current = t; await this.loadPosts(); },
+        pct(v) { return v == null ? 'n/a' : (v * 100).toFixed(1) + '%'; },
+        async select(t) {
+            this.current = t;
+            await Promise.all([this.loadPosts(), this.loadInsights()]);
+        },
+        async loadInsights() {
+            const base = `/api/v1/topics/${this.current.id}`;
+            const [a, d, t] = await Promise.all([fetch(base + '/alerts'), fetch(base + '/drift'), fetch(base + '/trends')]);
+            this.alerts = (await a.json()).alerts;
+            this.drift = await d.json();
+            this.trend = (await t.json()).points;
+        },
+        async ack(a) {
+            await fetch(`/api/v1/alerts/${a.id}/ack`, { method: 'POST' });
+            a.acknowledged = true;
+        },
         async loadPosts() {
             if (!this.current) return;
             const q = this.sentiment ? '&sentiment=' + this.sentiment : '';

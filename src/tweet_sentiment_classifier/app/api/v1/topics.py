@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from tweet_sentiment_classifier.app.deps import get_container, get_db
 from tweet_sentiment_classifier.app.services import ingestion_service
-from tweet_sentiment_classifier.entity.models import IngestionRun, Post, Topic
+from tweet_sentiment_classifier.entity.models import Alert, IngestionRun, Post, Topic
 
 router = APIRouter(tags=["topics"])
 
@@ -77,6 +77,7 @@ def delete_topic(topic_id: int, db: Session = Depends(get_db)):
     topic = _topic_or_404(db, topic_id)
     db.query(Post).filter(Post.topic_id == topic_id).delete()
     db.query(IngestionRun).filter(IngestionRun.topic_id == topic_id).delete()
+    db.query(Alert).filter(Alert.topic_id == topic_id).delete()
     db.delete(topic)
     db.commit()
     return {"status": "deleted"}

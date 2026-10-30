@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     MAX_POSTS_PER_RUN: int = 100
     MAX_TOPICS: int = 20
     POST_RETENTION_DAYS: int = 90
+    # Alerts on a topic: the last ALERT_WINDOW_HOURS against the 7 days before it
+    ALERT_WINDOW_HOURS: int = 24
+    ALERT_MIN_POSTS: int = 20  # both windows need at least this many posts before any alert can fire
+    ALERT_P_VALUE: float = 0.01
+    ALERT_COOLDOWN_HOURS: int = 24
+    DRIFT_PSI_ALERT: float = 0.25  # the usual "significant shift" level for the population stability index
     RSS_FEEDS: str = ""  # comma-separated https feed URLs, filtered by each topic's query
 
     class Config:

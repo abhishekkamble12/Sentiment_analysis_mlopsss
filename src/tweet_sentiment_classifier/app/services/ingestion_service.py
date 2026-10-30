@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
+from tweet_sentiment_classifier.app.services import topic_analytics
 from tweet_sentiment_classifier.components.data_transformation import clean_text
 from tweet_sentiment_classifier.entity.models import IngestionRun, Post, Topic
 
@@ -70,7 +71,13 @@ async def _ingest_source(c, db: Session, topic: Topic, name: str) -> Dict[str, A
 
 async def ingest_topic(c, db: Session, topic: Topic) -> List[Dict[str, Any]]:
     """Every source of the topic, one after the other; a failing source does not stop the rest."""
-    return [await _ingest_source(c, db, topic, name) for name in topic.sources]
+    runs = [await _ingest_source(c, db, topic, name) for name in topic.sources]
+    try:
+        topic_analytics.evaluate_alerts(db, topic, getattr(c.pipeline, "vectorizer", None), c.settings)
+    except Exception as e:  # alerting must never turn a successful ingestion into a failure
+        db.rollback()
+        logger.warning(f"alert evaluation failed for topic {topic.id}: {e}")
+    return runs
 
 
 async def ingest_all(c, db: Session) -> Dict[str, Any]:

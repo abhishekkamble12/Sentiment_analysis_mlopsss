@@ -93,3 +93,19 @@ class IngestionRun(Base):
     new = Column(Integer, default=0, nullable=False)
     error = Column(String, nullable=True)
 
+
+class Alert(Base):
+    """A statistically unusual change on a topic (see services/topic_analytics.py)."""
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # negative_spike | volume_spike | class_drift
+    window_hours = Column(Integer, nullable=False)
+    baseline = Column(Float, nullable=False)
+    observed = Column(Float, nullable=False)
+    p_value = Column(Float, nullable=True)
+    message = Column(String, nullable=False)
+    acknowledged = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+

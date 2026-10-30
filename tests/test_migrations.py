@@ -84,3 +84,18 @@ def test_topic_tables_are_created_on_fresh_and_existing_databases(db_path):
         con.execute(insert, ("e1", "h2"))
     with pytest.raises(sqlite3.IntegrityError):  # same content twice for one topic
         con.execute(insert, ("e2", "h1"))
+
+
+def test_alerts_table_is_created_on_an_existing_database(db_path):
+    con = sqlite3.connect(db_path)
+    con.executescript(OLD_SCHEMA)
+    con.commit()
+    con.close()
+
+    upgrade()
+
+    con = sqlite3.connect(db_path)
+    cols = {r[1] for r in con.execute("pragma table_info(alerts)")}
+    assert {"topic_id", "kind", "window_hours", "baseline", "observed", "p_value", "message",
+            "acknowledged", "created_at"} <= cols
+
