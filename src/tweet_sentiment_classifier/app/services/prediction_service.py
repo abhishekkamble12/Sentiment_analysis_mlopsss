@@ -10,6 +10,7 @@ from fastapi import HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
+from tweet_sentiment_classifier.app.core import metrics
 from tweet_sentiment_classifier.config.env_config import get_settings
 from tweet_sentiment_classifier.entity.models import LabelCorrection, PredictionLog
 
@@ -48,6 +49,7 @@ async def predict_and_log(c, text: str, db: Session) -> Dict[str, Any]:
 
     start_time = time.time()
     result = await c.pipeline.predict(text)
+    metrics.PREDICTIONS.labels(result.get("decision_source") or "unknown").inc()
     latency_ms = (time.time() - start_time) * 1000
 
     try:
@@ -104,6 +106,7 @@ async def process_csv(c, file: UploadFile, db: Session) -> Dict[str, Any]:
         try:
             start_time = time.time()
             res = await c.pipeline.predict(text)
+            metrics.PREDICTIONS.labels(res.get("decision_source") or "unknown").inc()
             latency_ms = (time.time() - start_time) * 1000
         except Exception as e:
             logger.warning(f"CSV row failed: {e}")
@@ -135,6 +138,7 @@ async def submit_form(c, form_req, db: Session) -> Dict[str, Any]:
 
     start_time = time.time()
     res = await c.pipeline.predict(text)
+    metrics.PREDICTIONS.labels(res.get("decision_source") or "unknown").inc()
     latency_ms = (time.time() - start_time) * 1000
 
     try:

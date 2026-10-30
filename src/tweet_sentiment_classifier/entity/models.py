@@ -172,3 +172,14 @@ class AnnotationItem(Base):
     status = Column(String, default="pending", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class ApiKey(Base):
+    """Only the SHA-256 of a key is stored: the key itself is shown once, when it is created."""
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    key_hash = Column(String, nullable=False, unique=True)
+    revoked = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

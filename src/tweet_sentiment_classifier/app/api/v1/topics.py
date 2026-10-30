@@ -1,5 +1,4 @@
 """Topics to monitor, the posts collected for them, and the endpoints that trigger collection."""
-import hmac
 from typing import List
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -8,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tweet_sentiment_classifier.app.core import auth
 from tweet_sentiment_classifier.app.deps import get_container, get_db
 from tweet_sentiment_classifier.app.services import ingestion_service
 from tweet_sentiment_classifier.entity.models import Alert, AnnotationItem, IngestionRun, Insight, Post, Topic
@@ -23,12 +23,26 @@ class TopicRequest(BaseModel):
     sources: List[str] = ["google_news"]
 
 
-def require_ingest_token(x_ingest_token: str = Header(default=""), c=Depends(get_container)) -> None:
-    expected = c.settings.INGEST_TOKEN
-    if not expected:
-        raise HTTPException(status_code=503, detail="Ingestion endpoints are disabled: set INGEST_TOKEN.")
-    if not hmac.compare_digest(x_ingest_token.encode(), expected.encode()):
-        raise HTTPException(status_code=403, detail="Invalid ingest token.")
+def _check_access(db: Session, c, x_ingest_token: str, x_api_key: str) -> None:
+    verdict = auth.authorize(db, [x_ingest_token, x_api_key], c.settings.INGEST_TOKEN)
+    if verdict == "disabled":
+        raise HTTPException(status_code=503, detail="Protected endpoints are disabled: set INGEST_TOKEN or create an "
+                            "API key (python -m tweet_sentiment_classifier.app.core.auth create NAME).")
+    if verdict == "denied":
+        raise HTTPException(status_code=403, detail="Invalid or missing key. Send it as X-API-Key (or X-Ingest-Token).")
+
+
+def require_ingest_token(x_ingest_token: str = Header(default=""), x_api_key: str = Header(default=""),
+                         db: Session = Depends(get_db), c=Depends(get_container)) -> None:
+    """Always required: these endpoints collect data or spend LLM tokens."""
+    _check_access(db, c, x_ingest_token, x_api_key)
+
+
+def require_write(x_ingest_token: str = Header(default=""), x_api_key: str = Header(default=""),
+                  db: Session = Depends(get_db), c=Depends(get_container)) -> None:
+    """Required only when API_AUTH is on (a deployment), so local use stays frictionless."""
+    if c.settings.API_AUTH:
+        _check_access(db, c, x_ingest_token, x_api_key)
 
 
 def _topic_or_404(db: Session, topic_id: int) -> Topic:
@@ -38,7 +52,7 @@ def _topic_or_404(db: Session, topic_id: int) -> Topic:
     return topic
 
 
-@router.post("/topics", status_code=201)
+@router.post("/topics", status_code=201, dependencies=[Depends(require_write)])
 def create_topic(req: TopicRequest, db: Session = Depends(get_db), c=Depends(get_container)):
     name, query = req.name.strip(), req.query.strip()
     if not name or not query:
@@ -72,7 +86,7 @@ def list_topics(db: Session = Depends(get_db)):
     ]}
 
 
-@router.delete("/topics/{topic_id}")
+@router.delete("/topics/{topic_id}", dependencies=[Depends(require_write)])
 def delete_topic(topic_id: int, db: Session = Depends(get_db)):
     topic = _topic_or_404(db, topic_id)
     db.query(AnnotationItem).filter(AnnotationItem.topic_id == topic_id).delete()

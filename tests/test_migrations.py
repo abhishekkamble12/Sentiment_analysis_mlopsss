@@ -128,3 +128,18 @@ def test_agent_runs_and_annotation_queue_tables_are_created_on_an_existing_datab
     assert {"post_id", "topic_id", "reason", "priority", "status"} <= {
         r[1] for r in con.execute("pragma table_info(annotation_queue)")}
 
+
+def test_api_keys_table_is_created_on_an_existing_database(db_path):
+    con = sqlite3.connect(db_path)
+    con.executescript(OLD_SCHEMA)
+    con.commit()
+    con.close()
+
+    upgrade()
+
+    con = sqlite3.connect(db_path)
+    assert {"name", "key_hash", "revoked", "created_at"} <= {r[1] for r in con.execute("pragma table_info(api_keys)")}
+    con.execute("INSERT INTO api_keys (name, key_hash) VALUES ('a', 'h')")
+    with pytest.raises(sqlite3.IntegrityError):  # a hash can only exist once
+        con.execute("INSERT INTO api_keys (name, key_hash) VALUES ('b', 'h')")
+

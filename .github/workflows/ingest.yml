@@ -1,0 +1,26 @@
+name: Scheduled ingestion
+
+# For hosts without a background worker (free tiers): calls the deployed app every 30 minutes.
+# Enable it by setting the repository variable APP_URL (for example https://your-app.onrender.com)
+# and the repository secret INGEST_API_KEY (create one with: python -m tweet_sentiment_classifier.app.core.auth create ci).
+# Skip this workflow if you run the worker container: both would collect the same posts (duplicates are skipped, but the work is doubled).
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ingest:
+    if: ${{ vars.APP_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Collect posts for every active topic
+      env:
+        APP_URL: ${{ vars.APP_URL }}
+        KEY: ${{ secrets.INGEST_API_KEY }}
+      run: |
+        curl --fail --silent --show-error --retry 3 --retry-delay 20 --max-time 280 \
+          -X POST "$APP_URL/api/v1/ingest/run" -H "X-API-Key: $KEY"

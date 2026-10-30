@@ -29,6 +29,12 @@ services:
     environment:
       # overrides DATABASE_URL from .env.docker so the password is defined in one place
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/tweet_sentiment
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     depends_on:
       db:
         condition: service_healthy
@@ -43,8 +49,19 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/tweet_sentiment
     depends_on:
-      db:
-        condition: service_healthy
+      web:
+        condition: service_healthy  # the web container applies the migrations first
+
+  # Opt-in: docker compose --profile monitoring up. Scrapes web:8000/metrics (see monitoring/prometheus.yml).
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["monitoring"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - web
 
 volumes:
   postgres_data:

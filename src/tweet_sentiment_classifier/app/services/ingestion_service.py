@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
+from tweet_sentiment_classifier.app.core import metrics
 from tweet_sentiment_classifier.app.services import topic_analytics
 from tweet_sentiment_classifier.components.data_transformation import clean_text
 from tweet_sentiment_classifier.entity.models import IngestionRun, Post, Topic
@@ -58,8 +59,10 @@ async def _ingest_source(c, db: Session, topic: Topic, name: str) -> Dict[str, A
                         prediction=res.get("prediction", "unknown"), confidence=res.get("confidence"),
                         decision_source=res.get("decision_source")))
             run.new += 1
+        metrics.INGESTED_POSTS.labels(name).inc(run.new)
     except Exception as e:
         db.rollback()  # drops this source's half-added posts; the run row below is still recorded
+        metrics.INGEST_ERRORS.labels(name).inc()
         logger.warning(f"ingestion of '{name}' for topic {topic.id} failed: {e}")
         run = IngestionRun(topic_id=topic.id, source=name, started_at=run.started_at, fetched=0, new=0,
                            error=str(e)[:300])

@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     AGENT_MAX_STEPS: int = 8
     AGENT_MAX_TOKENS: int = 20_000
     AGENT_TIMEOUT_SECONDS: int = 90
+    # Hardening. The defaults keep local use frictionless; .env.docker turns them on for deployments.
+    API_AUTH: bool = False  # true: creating/deleting topics and queueing annotations also need a key
+    RATE_LIMIT_PER_MINUTE: int = 0  # per client, read requests (0 = off)
+    RATE_LIMIT_WRITE_PER_MINUTE: int = 0  # per client, POST/PUT/DELETE requests (0 = off)
+    TRUST_PROXY: bool = False  # true only behind a proxy you control: the client is the first X-Forwarded-For entry
+    METRICS_TOKEN: str = ""  # when set, /metrics needs "Authorization: Bearer <token>"
     RSS_FEEDS: str = ""  # comma-separated https feed URLs, filtered by each topic's query
 
     class Config:

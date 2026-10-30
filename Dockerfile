@@ -30,4 +30,6 @@ RUN pip install .
 EXPOSE 8000
 
 # Run uvicorn with optimized workers & threads
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--limit-concurrency", "50"]
+# Apply database migrations, then serve. One uvicorn worker on purpose: the rate limiter and caches live in
+# process (see docs/DEPLOYMENT.md before scaling out).
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --limit-concurrency 50"]

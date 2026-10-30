@@ -6,3 +6,4 @@ uvicorn==0.54.0
 Jinja2==3.1.6
 python-multipart==0.0.32
 huggingface_hub==2.3.0
+prometheus-client==0.21.1

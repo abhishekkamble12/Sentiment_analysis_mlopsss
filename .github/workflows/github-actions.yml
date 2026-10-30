@@ -41,3 +41,22 @@ jobs:
 
     - name: Run tests
       run: python -m pytest -q
+
+    - name: Migrations apply to an empty database
+      env:
+        DATABASE_URL: sqlite:///ci_migrations.db
+      run: alembic upgrade head
+
+    - name: Dependency audit (reports known vulnerabilities; does not block the build)
+      continue-on-error: true
+      run: |
+        pip install pip-audit
+        pip-audit -r requirements/api.txt
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build the image (not pushed)
+      run: docker build -t tweet-sentiment:ci .

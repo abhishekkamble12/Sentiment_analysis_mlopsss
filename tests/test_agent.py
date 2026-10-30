@@ -291,6 +291,21 @@ def test_a_report_defaults_its_question_and_too_many_running_sessions_are_refuse
     assert client.post("/api/v1/agent/runs", json={"kind": "ask", "question": "q"}, headers=TOKEN).status_code == 429
 
 
+def test_sessions_cut_off_by_a_restart_are_closed_and_do_not_block_new_ones(world, app_module, monkeypatch):
+    client, Session, tid, _ = world
+    use_model(app_module, monkeypatch, Scripted([final("Fine.")]))
+    old = datetime.utcnow() - timedelta(seconds=app_module.settings.AGENT_TIMEOUT_SECONDS + 120)
+    with Session() as db:
+        for _ in range(3):
+            db.add(AgentRun(kind="ask", question="zombie", status="running", steps=[], created_at=old))
+        db.commit()
+    started = client.post("/api/v1/agent/runs", json={"kind": "ask", "question": "q"}, headers=TOKEN)
+    assert started.status_code == 202  # not 429: the three zombies were closed first
+    with Session() as db:
+        zombies = db.query(AgentRun).filter(AgentRun.question == "zombie").all()
+        assert {z.status for z in zombies} == {"failed"} and "interrupted" in zombies[0].error
+
+
 def test_agent_page_renders(env):
     client, _ = env
     assert "Ask the Agent" in client.get("/agent").text

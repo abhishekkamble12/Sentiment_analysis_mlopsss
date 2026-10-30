@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from tweet_sentiment_classifier.app import prompts
 from tweet_sentiment_classifier.app.agent.tools import ToolError, build_tools
+from tweet_sentiment_classifier.app.core import metrics
 from tweet_sentiment_classifier.app.core.llm.client import BudgetExceeded
 from tweet_sentiment_classifier.entity.models import AgentRun, Topic
 from tweet_sentiment_classifier.utils.llm_safety import sanitize_untrusted, wrap_untrusted
@@ -102,6 +103,7 @@ def run_agent(db: Session, c, run: AgentRun) -> AgentRun:
         run.steps, run.status, run.error, run.answer = list(steps), status, error, answer
         run.tokens_in, run.tokens_out = usage["in"], usage["out"]
         if status != "running":
+            metrics.AGENT_RUNS.labels(status).inc()
             run.finished_at = datetime.utcnow()
             run.latency_ms = round((time.monotonic() - started) * 1000, 1)
         db.commit()
@@ -166,5 +168,6 @@ def execute(session_factory, c, run_id: int) -> None:
             logger.exception("agent run crashed")
             db.rollback()
             run = db.get(AgentRun, run_id)
+            metrics.AGENT_RUNS.labels("failed").inc()
             run.status, run.error, run.finished_at = "failed", f"internal error: {type(e).__name__}", datetime.utcnow()
             db.commit()

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from tweet_sentiment_classifier.app.core import metrics
 from tweet_sentiment_classifier.app.core.llm.providers import LLMError, LLMProvider
 from tweet_sentiment_classifier.entity.models import LlmCall
 from tweet_sentiment_classifier.utils.llm_safety import extract_json_object
@@ -71,6 +72,8 @@ class LLMClient:
                 db.commit()
                 continue
             row.tokens_in, row.tokens_out = reply.tokens_in, reply.tokens_out
+            metrics.LLM_TOKENS.labels(p.name, "in").inc(reply.tokens_in)
+            metrics.LLM_TOKENS.labels(p.name, "out").inc(reply.tokens_out)
             if usage is not None:  # lets a caller (the agent) cap what one session spends
                 usage["in"] = usage.get("in", 0) + reply.tokens_in
                 usage["out"] = usage.get("out", 0) + reply.tokens_out

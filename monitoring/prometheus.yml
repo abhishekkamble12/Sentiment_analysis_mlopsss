@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: tweet-sentiment
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["web:8000"]
+    # If you set METRICS_TOKEN, give Prometheus the same token:
+    # authorization:
+    #   type: Bearer
+    #   credentials: "<METRICS_TOKEN>"

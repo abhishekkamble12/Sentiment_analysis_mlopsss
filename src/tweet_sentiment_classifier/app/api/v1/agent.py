@@ -1,4 +1,5 @@
 """Agent sessions (research report, ask your data) and the human-annotation queue."""
+from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from tweet_sentiment_classifier.app import prompts
 from tweet_sentiment_classifier.app.agent import runner
-from tweet_sentiment_classifier.app.api.v1.topics import _topic_or_404, require_ingest_token
+from tweet_sentiment_classifier.app.api.v1.topics import _topic_or_404, require_ingest_token, require_write
 from tweet_sentiment_classifier.app.deps import get_container, get_db
 from tweet_sentiment_classifier.app.services import annotation_service
 from tweet_sentiment_classifier.entity.models import AgentRun
@@ -45,6 +46,12 @@ def start_run(req: RunRequest, background: BackgroundTasks, db: Session = Depend
         question = question or f"Write a research report on the topic '{_topic_or_404(db, req.topic_id).name}'."
     elif req.topic_id is not None:
         _topic_or_404(db, req.topic_id)
+    # A session that outlived its time limit was cut off (a restart, a crash): close it so it cannot block new ones
+    cutoff = datetime.utcnow() - timedelta(seconds=c.settings.AGENT_TIMEOUT_SECONDS + 60)
+    db.query(AgentRun).filter(AgentRun.status == "running", AgentRun.created_at < cutoff).update(
+        {"status": "failed", "error": "interrupted: the server restarted or the session timed out",
+         "finished_at": datetime.utcnow()})
+    db.commit()
     if db.query(AgentRun).filter(AgentRun.status == "running").count() >= MAX_RUNNING:
         raise HTTPException(status_code=429, detail="Too many agent sessions are running; try again shortly.")
 
@@ -71,7 +78,7 @@ def list_runs(limit: int = 20, db: Session = Depends(get_db)):
     return {"runs": [{k: v for k, v in _run_json(r).items() if k not in ("steps", "answer")} for r in rows]}
 
 
-@router.post("/annotation/refresh")
+@router.post("/annotation/refresh", dependencies=[Depends(require_write)])
 def refresh_queue(topic_id: int, limit: int = 50, db: Session = Depends(get_db)):
     _topic_or_404(db, topic_id)
     return {"queued": annotation_service.queue_uncertain(db, topic_id, max(1, min(limit, 500)))}

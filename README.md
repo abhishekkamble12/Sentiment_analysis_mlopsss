@@ -1,8 +1,18 @@
-# Tweet Sentiment Classification
+# Tweet Sentiment Classification and Topic Monitor
 
-Three-class (negative / neutral / positive) sentiment classification for tweets, with a training
-pipeline, a FastAPI service and a small web UI. Work in progress: see *Known limitations* before
-quoting any number from this repository.
+Three-class (negative / neutral / positive) sentiment classification, grown into a small monitoring platform:
+
+- **Classify**: a trained scikit-learn model (optionally an LLM for uncertain texts), with word-level
+  explanations and an "uncertain" answer when the model is unsure.
+- **Monitor topics**: a worker collects public news about topics you register, classifies it, and shows
+  trends, drift and statistical alerts.
+- **Understand**: an LLM (optional) names the themes in the posts and writes a daily "what changed" note.
+- **Ask**: an agent answers questions and writes reports from the stored posts, citing the posts it used.
+- **Three UIs over one API**: server-rendered pages (`/`), a React app (`/app`) and a Streamlit demo.
+- **Research track**: a leak-free evaluation, a gold-set pipeline and experiments (see *Evaluation*).
+
+Work in progress: see *Known limitations* before quoting any number from this repository. The build plan is in
+`docs/IMPLEMENTATION_PLAN.md`; hosting is in `docs/DEPLOYMENT.md`.
 
 ## Known limitations
 
@@ -17,6 +27,14 @@ quoting any number from this repository.
 - The train/val/test CSVs are generated, not committed: `python main.py` recreates them deterministically, and
   `artifacts/data_transformation/split_manifest.json` holds their sizes, label counts and fingerprints to verify them.
 - The transformer tier is disabled until a fine-tuned 3-class checkpoint exists (see below).
+
+- **News headlines are far from the training data.** The model learned from lexicon-labelled tweets, so its labels on
+  news headlines are rough (a neutral price report can come out "positive"). The Topic Monitor page shows the
+  unknown-word rate per topic as a warning sign, and the agent is told to mention this.
+- **The LLM features have not been scored with a real model.** The agent evaluation harness
+  (`python -m tweet_sentiment_classifier.app.agent.evaluation`) runs and its plumbing is tested with a scripted
+  model, but no real-model results exist yet. The citation check removes invented post ids; it does not check
+  that a number in an answer is right.
 
 ## How a prediction is made
 
@@ -44,6 +62,47 @@ Choose it on the validation split with
 
 `POST /api/v1/corrections` stores a user's "wrong label" report in `label_corrections`. These rows are
 candidates for annotation, never training labels.
+
+## Topic monitoring, insights and the agent
+
+```
+worker: collect (Google News, optional RSS) -> classify -> trends, drift, alerts -> themes + daily note -> annotation queue
+API:    /api/v1/...   topics, posts, trends, drift, alerts, insights, agent runs, annotation export, metrics
+```
+
+| What | Endpoint | Needs a key |
+|---|---|---|
+| Add / list / delete topics | `POST /api/v1/topics`, `GET /api/v1/topics`, `DELETE /api/v1/topics/{id}` | writes only when `API_AUTH=true` |
+| Posts of a topic (filters, pages) | `GET /api/v1/topics/{id}/posts` | no |
+| Trends with 95% intervals | `GET /api/v1/topics/{id}/trends` | no |
+| Drift (unknown words, confidence, class mix) | `GET /api/v1/topics/{id}/drift` | no |
+| Alerts, acknowledge | `GET /api/v1/topics/{id}/alerts`, `POST /api/v1/alerts/{id}/ack` | no |
+| Themes and daily note | `GET /api/v1/topics/{id}/insights` | no |
+| Collect now / rebuild insights | `POST /api/v1/topics/{id}/ingest`, `POST /api/v1/ingest/run`, `POST /api/v1/topics/{id}/insights/run` | **yes** |
+| Agent (report, ask) | `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{id}` | **yes** |
+| Posts worth a human label | `GET /api/v1/annotation/queue`, `GET /api/v1/annotation/export` (Label Studio, no model labels) | refresh when `API_AUTH=true` |
+| Prometheus metrics | `GET /metrics` | optional `METRICS_TOKEN` |
+
+Keys go in the `X-API-Key` header (the older `X-Ingest-Token` header works too). The endpoints marked **yes** stay
+closed (503) until you set `INGEST_TOKEN` or create a key:
+
+```bash
+python -m tweet_sentiment_classifier.app.core.auth create "my laptop"     # prints the key once; only its hash is stored
+python -m tweet_sentiment_classifier.worker.main                          # collect + insights loop (or --once)
+python -m tweet_sentiment_classifier.app.agent.evaluation --oracle        # harness plumbing check (no LLM)
+python -m tweet_sentiment_classifier.app.agent.evaluation --out artifacts/agent_eval   # real model (needs a key)
+```
+
+Everything is optional and off by default; the main settings (full list in `.env.example`):
+
+| Setting | Effect |
+|---|---|
+| `INGEST_TOKEN`, `API_AUTH` | shared secret for protected endpoints; `API_AUTH=true` also protects topic writes |
+| `GROQ_API_KEY` / `LLM_PROVIDER` + `LLM_MODEL` | turns on themes naming, the daily note and the agent (Groq, OpenAI or Anthropic) |
+| `LLM_DAILY_TOKEN_BUDGET`, `AGENT_MAX_STEPS`, `AGENT_MAX_TOKENS` | hard limits on LLM spend |
+| `ABSTAIN_THRESHOLD` | local answers below this confidence become "uncertain" |
+| `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_WRITE_PER_MINUTE`, `TRUST_PROXY` | per-client limits (0 = off) |
+| `ALERT_*`, `THEME_WINDOW_HOURS`, `POST_RETENTION_DAYS` | alert sensitivity, theme window, how long posts are kept |
 
 ## Web application (React + FastAPI)
 
@@ -182,6 +241,9 @@ Stages: ingest, validate (writes `artifacts/data_validation/validated.csv`), tra
 train and evaluate each model in `params.yaml` (MLflow logging) and pick the best by macro-F1.
 
 ## Docker
+
+`docker compose up` starts the database, the web app (applies migrations first) and the worker; `--profile monitoring` adds Prometheus. Production settings, hosting and the security checklist are in `docs/DEPLOYMENT.md`.
+
 
 ```bash
 export POSTGRES_PASSWORD='choose-one'         # required; compose refuses to start without it
